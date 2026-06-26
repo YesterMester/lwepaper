@@ -66,6 +66,7 @@ public:
     Q_INVOKABLE QStringList missingDependencies(const QString &workshopId) const;
     Q_INVOKABLE QJsonArray getWallpaperProperties(const QString &workshopId) const;
     Q_INVOKABLE void saveWallpaperProperty(const QString &workshopId, const QString &key, const QJsonValue &value);
+    Q_INVOKABLE QString getWallpaperType(const QString &workshopId) const;
 
     static void collectDependenciesRecursively(const QString &workshopDir, const QString &wpId, QStringList &collected, bool isRoot = false);
     static bool linkFilesRecursively(const QString &srcPath, const QString &dstPath);

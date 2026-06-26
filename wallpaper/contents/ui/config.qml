@@ -23,8 +23,12 @@ ColumnLayout {
     property string cfg_FilterType: "scene"
     property bool   cfg_ShowDebug: false
     property int    cfg_RelaunchTrigger: 0
+    property string selectedWpType: library.getWallpaperType(root.cfg_WorkshopId)
 
-    onCfg_WorkshopIdChanged: loadWpProperties()
+    onCfg_WorkshopIdChanged: {
+        root.selectedWpType = library.getWallpaperType(root.cfg_WorkshopId)
+        loadWpProperties()
+    }
 
     ListModel {
         id: wpPropertiesModel
@@ -192,6 +196,53 @@ ColumnLayout {
         }
     }
 
+    // ─── Security Warning Banner ─────────────────────────────────────
+    Rectangle {
+        Layout.fillWidth: true
+        Layout.preferredHeight: warningText.implicitHeight + 24
+        visible: root.cfg_WorkshopId !== "" && (root.selectedWpType === "web" || root.selectedWpType === "app" || root.selectedWpType === "application")
+        color: "#2a2215"
+        border.color: "#d4a373"
+        border.width: 1
+        radius: 4
+        clip: true
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 12
+
+            Text {
+                text: "⚠️"
+                font.pixelSize: 24
+                Layout.alignment: Qt.AlignVCenter
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 2
+
+                Label {
+                    text: "Security Notice: " + (root.selectedWpType === "web" ? "Web Wallpaper" : "Executable Wallpaper")
+                    font.bold: true
+                    color: "#f4a261"
+                    font.pixelSize: 13
+                }
+
+                Label {
+                    id: warningText
+                    text: root.selectedWpType === "web"
+                          ? "Web wallpapers run code (JavaScript) inside a browser sandbox. They are generally safe but could potentially request network access or read local resources if sandbox escapes occur."
+                          : "Application wallpapers run binary executables (.exe) natively on your system. Executable wallpapers have full access to your user files and CAN CONTAIN MALWARE. ONLY run executables from creators you trust."
+                    color: "#e9c46a"
+                    font.pixelSize: 11
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+            }
+        }
+    }
+
     // ─── Wallpaper properties ────────────────────────────────────────
     GroupBox {
         Layout.fillWidth: true
@@ -251,8 +302,10 @@ ColumnLayout {
                 onMoved: {
                     library.saveWallpaperProperty(root.cfg_WorkshopId, model.key, value)
                 }
-                onReleased: {
-                    root.cfg_RelaunchTrigger = root.cfg_RelaunchTrigger + 1
+                onPressedChanged: {
+                    if (!pressed) {
+                        root.cfg_RelaunchTrigger = root.cfg_RelaunchTrigger + 1
+                    }
                 }
                 Layout.fillWidth: true
             }

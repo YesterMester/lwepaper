@@ -477,6 +477,14 @@ void LWELibrary::saveWallpaperProperty(const QString &workshopId, const QString 
     }
 }
 
+QString LWELibrary::getWallpaperType(const QString &workshopId) const
+{
+    for (const auto &e : m_all) {
+        if (e.id == workshopId) return e.type;
+    }
+    return {};
+}
+
 void LWELibrary::scan()
 {
     m_all.clear();
