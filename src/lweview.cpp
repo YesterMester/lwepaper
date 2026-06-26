@@ -199,7 +199,7 @@ LWEView::LWEView(QQuickItem *parent) : QQuickItem(parent)
 
     // Repaint timer — 30fps.
     auto *repaint = new QTimer(this);
-    connect(repaint, &QTimer::timeout, this, [this] { update(); });
+    connect(repaint, &QTimer::timeout, this, [this] { if (window()) update(); });
     repaint->start(33);
 
     // Event filter to capture mouse coordinates and button presses globally/passively
@@ -883,10 +883,11 @@ QSGNode *LWEView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
     }
     node->setRect(boundingRect());
 
+    if (!window()) return node;
+
     // If LWE isn't rendering, show a premium glassmorphic loading screen.
     if (!m_lweWindow) {
-        if (!m_status.isEmpty() && m_status != QLatin1String("idle")
-            && m_status != QLatin1String("waiting for init...")) {
+        if (!m_status.isEmpty() && m_status != QLatin1String("idle") && width() > 0 && height() > 0) {
             const int w = qMax(64, int(width()));
             const int h = qMax(64, int(height()));
             QImage fallback(w, h, QImage::Format_RGB32);
