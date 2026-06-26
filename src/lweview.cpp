@@ -968,10 +968,8 @@ QSGNode *LWEView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
                        Qt::AlignTop | Qt::AlignLeft | Qt::TextWordWrap, displayStatus);
 
             p.end();
-            QSGTexture *oldTex = node->texture();
             if (auto *tex = window()->createTextureFromImage(fallback)) {
                 node->setTexture(tex);
-                if (oldTex) delete oldTex;
             }
         }
         return node;
@@ -1036,10 +1034,8 @@ QSGNode *LWEView::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
         p.end();
     }
 
-    QSGTexture *oldTex = node->texture();
     if (auto *tex = window()->createTextureFromImage(copy)) {
         node->setTexture(tex);
-        if (oldTex) delete oldTex;
     }
     return node;
 }
