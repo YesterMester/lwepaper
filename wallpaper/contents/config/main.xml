@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+      http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+  <kcfgfile name=""/>
+  <group name="General">
+    <entry name="WorkshopId" type="String">
+      <label>Steam Workshop ID of the wallpaper to render</label>
+      <default></default>
+    </entry>
+    <entry name="AssetsDir" type="Path">
+      <label>Path to Wallpaper Engine assets folder</label>
+      <default></default>
+    </entry>
+    <!-- Playback options forwarded to linux-wallpaperengine. -->
+    <entry name="Volume" type="Int">
+      <label>Audio volume (0-100)</label>
+      <default>30</default>
+      <min>0</min><max>100</max>
+    </entry>
+    <entry name="Muted" type="Bool">
+      <label>Mute audio</label>
+      <default>true</default>
+    </entry>
+    <entry name="Fps" type="Int">
+      <label>Frame-rate cap</label>
+      <default>30</default>
+      <min>5</min><max>240</max>
+    </entry>
+    <entry name="Scaling" type="String">
+      <label>Scaling mode: default, stretch, fit, fill</label>
+      <default>default</default>
+    </entry>
+    <entry name="Clamp" type="String">
+      <label>Clamp mode: clamp, border, repeat</label>
+      <default>clamp</default>
+    </entry>
+    <entry name="MouseInput" type="Bool">
+      <label>Allow mouse input to the wallpaper</label>
+      <default>false</default>
+    </entry>
+    <entry name="Parallax" type="Bool">
+      <label>Enable parallax effect</label>
+      <default>true</default>
+    </entry>
+    <entry name="Particles" type="Bool">
+      <label>Enable particle effects</label>
+      <default>true</default>
+    </entry>
+    <entry name="FullscreenPause" type="Bool">
+      <label>Pause when a fullscreen app is active</label>
+      <default>true</default>
+    </entry>
+    <!-- Picker view preferences (not passed to LWE). -->
+    <entry name="SortMode" type="String">
+      <label>Picker sort mode</label>
+      <default>title</default>
+    </entry>
+    <entry name="FilterType" type="String">
+      <label>Picker type filter</label>
+      <default>scene</default>
+    </entry>
+    <entry name="ShowDebug" type="Bool">
+      <label>Show bright green debug text in corner</label>
+      <default>false</default>
+    </entry>
+    <entry name="RelaunchTrigger" type="Int">
+      <label>Incremented when wallpaper settings are saved to trigger reload</label>
+      <default>0</default>
+    </entry>
+  </group>
+</kcfg>

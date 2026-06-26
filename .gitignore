@@ -1,0 +1,6 @@
+build/
+.qt/
+*.tmp
+*.log
+*.so
+*.qmltypes

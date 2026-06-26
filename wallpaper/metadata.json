@@ -1,0 +1,17 @@
+{
+    "KPackageStructure": "Plasma/Wallpaper",
+    "KPlugin": {
+        "Authors": [
+            { "Name": "deck", "Email": "loganscott1955@gmail.com" }
+        ],
+        "Category": "",
+        "Description": "Renders Wallpaper Engine scenes via linux-wallpaperengine inside Plasma's wallpaper layer (icons/widgets show on top correctly).",
+        "Icon": "preferences-desktop-wallpaper",
+        "Id": "local.lwepaper",
+        "License": "GPLv2+",
+        "Name": "Wallpaper Engine (LWE)",
+        "Version": "0.1"
+    },
+    "X-KDE-ParentApp": "org.kde.plasmashell",
+    "X-Plasma-MainScript": "ui/main.qml"
+}
