@@ -199,7 +199,7 @@ LWEView::LWEView(QQuickItem *parent) : QQuickItem(parent)
 
     // Repaint timer — 30fps.
     auto *repaint = new QTimer(this);
-    connect(repaint, &QTimer::timeout, this, [this] { if (m_lweWindow) update(); });
+    connect(repaint, &QTimer::timeout, this, [this] { update(); });
     repaint->start(33);
 
     // Event filter to capture mouse coordinates and button presses globally/passively
@@ -792,6 +792,21 @@ void LWEView::pollForWindow()
         }
         qWarning() << "[lwepaper] pixmap=" << m_lwePixmap << "size=" << m_pixmapWidth << "x" << m_pixmapHeight;
         setStatus(QStringLiteral("rendering"));
+
+        // Send a fake mouse move to wake up the web rendering loop (CEF/Web wallpapers)
+        XEvent ev{};
+        auto &m = ev.xmotion;
+        m.type = MotionNotify;
+        m.window = w;
+        m.root = DefaultRootWindow(d);
+        m.subwindow = None;
+        m.time = CurrentTime;
+        m.x = 0; m.y = 0;
+        m.x_root = 8000; m.y_root = 8000;
+        m.same_screen = True;
+        XSendEvent(d, w, True, PointerMotionMask, &ev);
+        XFlush(d);
+
         m_findTimer.stop();
     }
 }

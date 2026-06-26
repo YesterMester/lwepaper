@@ -31,43 +31,54 @@ QByteArray LWEScenePatch::stripEffectsFromSceneJson(const QByteArray &json,
 
     QJsonObject scene = doc.object();
     QJsonArray objects = scene.value(QStringLiteral("objects")).toArray();
+    QJsonArray keptObjects;
     bool changed = false;
 
     for (int i = 0; i < objects.size(); ++i) {
         QJsonObject obj = objects[i].toObject();
-        QJsonArray effects = obj.value(QStringLiteral("effects")).toArray();
-        if (effects.isEmpty()) continue;
-        QJsonArray kept;
-        for (const auto &eff : effects) {
-            const QJsonObject eo = eff.toObject();
-            const QString name = eo.value(QStringLiteral("name")).toString();
-            // Match either the localized effect name or the shader file ref.
-            bool drop = effectNames.contains(name);
-            if (!drop) {
-                // Walk passes -> shaders to catch effects referenced only
-                // by their shader path (some scenes use that form).
-                const QJsonArray passes = eo.value(QStringLiteral("passes")).toArray();
-                for (const auto &p : passes) {
-                    const QString frag = p.toObject().value(QStringLiteral("shader")).toString();
-                    for (const QString &needle : effectNames) {
-                        if (!needle.isEmpty() && frag.contains(needle, Qt::CaseInsensitive)) {
-                            drop = true;
-                            break;
-                        }
-                    }
-                    if (drop) break;
-                }
+        
+        // Remove non-numeric "padding" key to prevent crash in linux-wallpaperengine ObjectParser::parseText
+        if (obj.contains(QStringLiteral("padding"))) {
+            QJsonValue paddingVal = obj.value(QStringLiteral("padding"));
+            if (!paddingVal.isDouble()) {
+                obj.remove(QStringLiteral("padding"));
+                changed = true;
+                qWarning() << "[lwepaper] Removed invalid padding from object" << obj.value(QStringLiteral("name")).toString() << "to prevent LWE crash";
             }
-            if (drop) { changed = true; continue; }
-            kept.append(eff);
         }
-        if (kept.size() != effects.size()) {
-            obj.insert(QStringLiteral("effects"), kept);
-            objects[i] = obj;
+
+        QJsonArray effects = obj.value(QStringLiteral("effects")).toArray();
+        if (!effects.isEmpty()) {
+            QJsonArray keptEffects;
+            for (const auto &eff : effects) {
+                const QJsonObject eo = eff.toObject();
+                const QString name = eo.value(QStringLiteral("name")).toString();
+                bool drop = effectNames.contains(name);
+                if (!drop) {
+                    const QJsonArray passes = eo.value(QStringLiteral("passes")).toArray();
+                    for (const auto &p : passes) {
+                        const QString frag = p.toObject().value(QStringLiteral("shader")).toString();
+                        for (const QString &needle : effectNames) {
+                            if (!needle.isEmpty() && frag.contains(needle, Qt::CaseInsensitive)) {
+                                drop = true;
+                                break;
+                            }
+                        }
+                        if (drop) break;
+                    }
+                }
+                if (drop) { changed = true; continue; }
+                keptEffects.append(eff);
+            }
+            if (keptEffects.size() != effects.size()) {
+                obj.insert(QStringLiteral("effects"), keptEffects);
+                changed = true;
+            }
         }
+        keptObjects.append(obj);
     }
     if (!changed) return json;
-    scene.insert(QStringLiteral("objects"), objects);
+    scene.insert(QStringLiteral("objects"), keptObjects);
     return QJsonDocument(scene).toJson(QJsonDocument::Compact);
 }
 

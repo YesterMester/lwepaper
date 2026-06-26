@@ -464,15 +464,33 @@ void LWELibrary::saveWallpaperProperty(const QString &workshopId, const QString 
     if (err.error != QJsonParseError::NoError || !doc.isObject()) return;
     
     QJsonObject obj = doc.object();
+    QJsonObject propertiesObj = obj.value(QStringLiteral("properties")).toObject();
+    QJsonObject prop = propertiesObj.value(key).toObject();
+    QString propType = prop.value(QStringLiteral("type")).toString().toLower();
+
+    QJsonValue typedVal = value;
+    if (propType == QStringLiteral("bool")) {
+        if (value.isString()) {
+            typedVal = (value.toString() == QStringLiteral("true"));
+        } else {
+            typedVal = value.toBool();
+        }
+    } else if (propType == QStringLiteral("slider")) {
+        if (value.isString()) {
+            typedVal = value.toString().toDouble();
+        } else {
+            typedVal = value.toDouble();
+        }
+    }
+
     QJsonObject presetObj = obj.value(QStringLiteral("preset")).toObject();
-    
-    presetObj.insert(key, value);
+    presetObj.insert(key, typedVal);
     obj.insert(QStringLiteral("preset"), presetObj);
     
     if (f.open(QIODevice::WriteOnly)) {
         f.write(QJsonDocument(obj).toJson());
         f.close();
-        qWarning() << "[lwepaper] saved property" << key << "=" << value << "for" << workshopId;
+        qWarning() << "[lwepaper] saved property" << key << "=" << typedVal << "for" << workshopId;
         emit changed();
     }
 }
