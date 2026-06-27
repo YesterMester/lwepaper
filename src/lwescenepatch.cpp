@@ -88,6 +88,56 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                     scriptText.remove(idx, endIdx + 5 - idx);
                 }
 
+                // 1b. Loop and remove all occurrences of /* LWE PROP INIT */ marker
+                // blocks. Without this, re-running the patcher on an
+                // already-patched scene.pkg (e.g. every plasmashell restart)
+                // kept re-injecting ANOTHER copy of the guard lines on top of
+                // the previous one every time — `funcRegex` below matches the
+                // *function signature*, which never changes, so the old
+                // unmarked injection had no way to know it had already run.
+                while (true) {
+                    int idx = scriptText.indexOf(QStringLiteral("/* LWE PROP INIT */"));
+                    if (idx == -1) break;
+                    int endIdx = scriptText.indexOf(QStringLiteral("/* END LWE PROP INIT */"), idx);
+                    if (endIdx == -1) break;
+                    int removeEnd = endIdx + QStringLiteral("/* END LWE PROP INIT */").size();
+                    scriptText.remove(idx, removeEnd - idx);
+                }
+
+                // 1c. Strip historical debug-instrumentation that wrapped
+                // init/update to JSON.stringify and print() every call —
+                // this was removed from the injector itself, but copies
+                // already baked into previously-patched scene.pkg files on
+                // disk need an explicit one-time removal pass too, or they
+                // persist (and keep compounding) forever. Matches both the
+                // bare-print() and _lwe_log()-based variants, looped since
+                // multiple stacked copies can exist from repeated old passes.
+                {
+                    static const QRegularExpression debugWrapInit(
+                        QStringLiteral("if\\s*\\(typeof init === 'function'\\)\\s*\\{\\s*"
+                                      "const _orig_init = init;\\s*"
+                                      "init = function\\(value\\) \\{\\s*"
+                                      "const ret = _orig_init\\(value\\);[\\s\\S]*?"
+                                      "return ret;\\s*"
+                                      "\\};\\s*\\}\\s*"));
+                    static const QRegularExpression debugWrapUpdate(
+                        QStringLiteral("if\\s*\\(typeof update === 'function'\\)\\s*\\{\\s*"
+                                      "const _orig_update = update;\\s*"
+                                      "update = function\\(value\\) \\{\\s*"
+                                      "const ret = _orig_update\\(value\\);[\\s\\S]*?"
+                                      "return ret;\\s*"
+                                      "\\};\\s*\\}\\s*"));
+                    static const QRegularExpression debugLogDef(
+                        QStringLiteral("const _lwe_log = function\\(\\) \\{[\\s\\S]*?\\};\\s*"));
+                    int guard = 0;
+                    while (scriptText.contains(debugWrapInit) && guard++ < 20)
+                        scriptText.replace(debugWrapInit, QString());
+                    guard = 0;
+                    while (scriptText.contains(debugWrapUpdate) && guard++ < 20)
+                        scriptText.replace(debugWrapUpdate, QString());
+                    scriptText.replace(debugLogDef, QString());
+                }
+
                 // 2. Remove block-based definitions and fallbacks
                 removeBlockStartingWith(scriptText, QStringLiteral("var _lwe_default_value = (function()"));
                 removeBlockStartingWith(scriptText, QStringLiteral("function _lwe_ensure_init"));
@@ -182,8 +232,12 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                     "})();\n"
                 ).arg(propName.contains('"') ? QString() : propName);
 
-                // 7. Inject guards inside init/update functions in the script text to handle undefined values and local variables safely
+                // 7. Inject guards inside init/update functions in the script text to handle undefined values and local variables safely.
+                // Wrapped in marker comments so step 1b above can cleanly
+                // strip exactly this block on the NEXT patch pass, instead of
+                // blindly re-injecting another copy on top of it.
                 QString propInit;
+                propInit += QStringLiteral("/* LWE PROP INIT */\n");
                 propInit += QStringLiteral("  if (value === undefined || value === null) { value = _lwe_default_value; }\n");
                 propInit += QStringLiteral("  value = _lwe_wrap(value);\n");
                 if (scriptText.contains(QStringLiteral("initScale"))) {
@@ -207,6 +261,7 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                 if (scriptText.contains(QStringLiteral("speed"))) {
                     propInit += QStringLiteral("  if (speed === undefined || speed === null) { speed = (scriptProperties.speed || 10) / 100; }\n");
                 }
+                propInit += QStringLiteral("/* END LWE PROP INIT */\n");
 
                 QRegularExpression funcRegex(QStringLiteral("\\bfunction\\s+(init|update)\\s*\\(\\s*value\\s*\\)\\s*\\{"));
                 scriptText.replace(funcRegex, QStringLiteral("function \\1(value) {\n") + propInit);
