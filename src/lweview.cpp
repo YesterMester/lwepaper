@@ -348,9 +348,10 @@ void LWEView::launchLwe()
             if (err.error == QJsonParseError::NoError && doc.isObject()) {
                 QJsonObject obj = doc.object();
 
-                // Extract preset properties from project.json to pass to LWE
-                                // Merge wallpaper default properties from "properties" and user choices from "preset"
                 QJsonObject propertiesObj = obj.value(QStringLiteral("properties")).toObject();
+                if (propertiesObj.isEmpty() && obj.contains(QStringLiteral("general"))) {
+                    propertiesObj = obj.value(QStringLiteral("general")).toObject().value(QStringLiteral("properties")).toObject();
+                }
                 QJsonObject presetObj = obj.value(QStringLiteral("preset")).toObject();
                 
                 QJsonObject activeProperties;
@@ -387,6 +388,34 @@ void LWEView::launchLwe()
                     }
                 }
 
+                // 1. Collect and link dependencies recursively FIRST
+                QStringList deps;
+                QString workshopRoot = QFileInfo(wpPath).absolutePath();
+                LWELibrary::collectDependenciesRecursively(workshopRoot, m_wid, deps, true);
+
+                // Missing-dep guard: if any required dep is NOT downloaded,
+                // tell the user via status instead of letting LWE crash.
+                {
+                    QStringList missing;
+                    for (const QString &depId : deps) {
+                        const QString dpj = workshopRoot + QLatin1Char('/') + depId + QStringLiteral("/project.json");
+                        if (!QFileInfo::exists(dpj)) missing << depId;
+                    }
+                    if (!missing.isEmpty()) {
+                        setStatus(QStringLiteral(
+                            "Subscribe in Steam Workshop to the required wallpaper(s): %1")
+                            .arg(missing.join(QStringLiteral(", "))));
+                        qWarning() << "[lwepaper] missing deps for" << m_wid << ":" << missing;
+                        return;   // don't even try launching LWE
+                    }
+                }
+
+                // Link all dependencies recursively
+                for (const QString &depId : deps) {
+                    LWELibrary::linkDepFiles(wpPath, depId);
+                }
+
+                // 2. Perform main file detection and type detection
                 QString type = obj.value(QStringLiteral("type")).toString().toLower();
                 QString file = obj.value(QStringLiteral("file")).toString();
 
@@ -424,70 +453,6 @@ void LWEView::launchLwe()
                     if (!hasMainFile && hasPkg) {
                         hasMainFile = true;
                         file = QStringLiteral("scene.json");
-                    }
-                }
-
-                // Collect and link dependencies recursively
-                {
-                    QStringList deps;
-                    QString workshopRoot = QFileInfo(wpPath).absolutePath();
-                    LWELibrary::collectDependenciesRecursively(workshopRoot, m_wid, deps, true);
-
-                    // Missing-dep guard: if any required dep is NOT downloaded,
-                    // tell the user via status instead of letting LWE crash.
-                    {
-                        QStringList missing;
-                        for (const QString &depId : deps) {
-                            const QString dpj = workshopRoot + QLatin1Char('/') + depId + QStringLiteral("/project.json");
-                            if (!QFileInfo::exists(dpj)) missing << depId;
-                        }
-                        if (!missing.isEmpty()) {
-                            setStatus(QStringLiteral(
-                                "Subscribe in Steam Workshop to the required wallpaper(s): %1")
-                                .arg(missing.join(QStringLiteral(", "))));
-                            qWarning() << "[lwepaper] missing deps for" << m_wid << ":" << missing;
-                            return;   // don't even try launching LWE
-                        }
-                    }
-
-                    // Link all dependencies recursively
-                    for (const QString &depId : deps) {
-                        QString depPath = workshopRoot + QLatin1Char('/') + depId;
-                        
-                        QString depFileVal;
-                        QString depPj = depPath + QStringLiteral("/project.json");
-                        QFile depF(depPj);
-                        if (depF.open(QIODevice::ReadOnly)) {
-                            QByteArray depBytes = depF.readAll();
-                            depF.close();
-                            QJsonDocument depDoc = QJsonDocument::fromJson(depBytes);
-                            if (depDoc.isObject()) {
-                                depFileVal = depDoc.object().value(QStringLiteral("file")).toString();
-                            }
-                        }
-
-                        if (depFileVal == QStringLiteral("scene.pkg") || depFileVal == QStringLiteral("gifscene.pkg")) {
-                            depFileVal = QStringLiteral("scene.json");
-                        }
-
-                        bool linkedAny = false;
-                        QDir depDir(depPath);
-                        if (depDir.exists()) {
-                            QStringList depEntries = depDir.entryList(QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot);
-                            for (const QString &name : depEntries) {
-                                if (name == QStringLiteral("project.json")) continue;
-                                QString src = depPath + QLatin1Char('/') + name;
-                                QString dst = wpPath + QLatin1Char('/') + name;
-                                if (LWELibrary::linkFilesRecursively(src, dst)) {
-                                    linkedAny = true;
-                                }
-                            }
-                        }
-
-                        if (linkedAny && !hasMainFile && !depFileVal.isEmpty()) {
-                            file = depFileVal;
-                            hasMainFile = true;
-                        }
                     }
                 }
 

@@ -70,6 +70,7 @@ public:
 
     static void collectDependenciesRecursively(const QString &workshopDir, const QString &wpId, QStringList &collected, bool isRoot = false);
     static bool linkFilesRecursively(const QString &srcPath, const QString &dstPath);
+    static bool linkDepFiles(const QString &wpPath, const QString &depId);
 
 signals:
     void workshopDirChanged();
@@ -93,9 +94,6 @@ private:
     void scan();
     void applyFilterAndSort();
     QString detectPkgVersion(const QString &dir) const;
-    // Internal: link a single dep's files into a wallpaper's dir.
-    // Used by prepareWallpaper / prepareAllDependencies.
-    bool linkDepFiles(const QString &wpPath, const QString &depId);
 
 
     QString m_workshopDir;

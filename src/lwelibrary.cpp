@@ -280,7 +280,7 @@ bool LWELibrary::linkFilesRecursively(const QString &srcPath, const QString &dst
         QDir srcDir(srcPath);
         QFileInfo dstInfo(dstPath);
         
-        if (dstInfo.exists() && dstInfo.isSymLink()) {
+        if ((dstInfo.exists() || dstInfo.isSymLink()) && dstInfo.isSymLink()) {
             QFile::remove(dstPath);
         }
 
@@ -305,7 +305,7 @@ bool LWELibrary::linkFilesRecursively(const QString &srcPath, const QString &dst
         return success;
     } else {
         QFileInfo dstInfo(dstPath);
-        if (dstInfo.exists()) {
+        if (dstInfo.exists() || dstInfo.isSymLink()) {
             if (dstInfo.isSymLink()) {
                 if (QFile::symLinkTarget(dstPath) == srcPath) return true;
                 QFile::remove(dstPath);
@@ -406,6 +406,9 @@ QJsonArray LWELibrary::getWallpaperProperties(const QString &workshopId) const
     
     QJsonObject obj = doc.object();
     QJsonObject propertiesObj = obj.value(QStringLiteral("properties")).toObject();
+    if (propertiesObj.isEmpty() && obj.contains(QStringLiteral("general"))) {
+        propertiesObj = obj.value(QStringLiteral("general")).toObject().value(QStringLiteral("properties")).toObject();
+    }
     QJsonObject presetObj = obj.value(QStringLiteral("preset")).toObject();
     
     for (auto it = propertiesObj.begin(); it != propertiesObj.end(); ++it) {
@@ -451,6 +454,9 @@ void LWELibrary::saveWallpaperProperty(const QString &workshopId, const QString 
     
     QJsonObject obj = doc.object();
     QJsonObject propertiesObj = obj.value(QStringLiteral("properties")).toObject();
+    if (propertiesObj.isEmpty() && obj.contains(QStringLiteral("general"))) {
+        propertiesObj = obj.value(QStringLiteral("general")).toObject().value(QStringLiteral("properties")).toObject();
+    }
     QJsonObject prop = propertiesObj.value(key).toObject();
     QString propType = prop.value(QStringLiteral("type")).toString().toLower();
 
