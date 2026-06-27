@@ -185,6 +185,7 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                 // 7. Inject guards inside init/update functions in the script text to handle undefined values and local variables safely
                 QString propInit;
                 propInit += QStringLiteral("  if (value === undefined || value === null) { value = _lwe_default_value; }\n");
+                propInit += QStringLiteral("  value = _lwe_wrap(value);\n");
                 if (scriptText.contains(QStringLiteral("initScale"))) {
                     propInit += QStringLiteral("  if (initScale === undefined || initScale === null) { initScale = value; }\n");
                 }
@@ -254,6 +255,17 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                     "        fract(value){return value-Math.floor(value);},\n"
                     "        deg2rad:Math.PI/180,\n"
                     "        rad2deg:180/Math.PI\n"
+                    "      };\n"
+                    "    }\n"
+                    "    if(typeof g._lwe_wrap==='undefined'){\n"
+                    "      g._lwe_wrap=function(v){\n"
+                    "        if(!v||typeof v!=='object') return v;\n"
+                    "        if(typeof v.multiply==='function') return v;\n"
+                    "        if('r' in v) return new Color(v.r, v.g, v.b, v.a);\n"
+                    "        if('w' in v) return new Vec4(v.x, v.y, v.z, v.w);\n"
+                    "        if('z' in v) return new Vec3(v.x, v.y, v.z);\n"
+                    "        if('x' in v) return new Vec2(v.x, v.y);\n"
+                    "        return v;\n"
                     "      };\n"
                     "    }\n"
                     "  }\n"
