@@ -8,6 +8,7 @@
 #include <QDataStream>
 #include <QtEndian>
 #include <QDebug>
+#include <QRegularExpression>
 
 QStringList LWEScenePatch::knownBrokenEffects()
 {
@@ -22,6 +23,170 @@ QStringList LWEScenePatch::knownBrokenEffects()
     };
 }
 
+static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QString &propName = QString())
+{
+    if (value.isObject()) {
+        QJsonObject obj = value.toObject();
+        if (obj.contains(QStringLiteral("script"))) {
+            QJsonValue scriptVal = obj.value(QStringLiteral("script"));
+            if (scriptVal.isString()) {
+                QString scriptText = scriptVal.toString();
+                bool needsPatch = false;
+
+                // Extract and strip old globals inject to ensure a clean update
+                if (scriptText.contains(QStringLiteral("/* LWE GLOBALS INJECT */"))) {
+                    int idx = scriptText.indexOf(QStringLiteral("/* LWE GLOBALS INJECT */"));
+                    int endIdx = scriptText.indexOf(QStringLiteral("})();"), idx);
+                    if (endIdx != -1) {
+                        scriptText.remove(idx, endIdx + 5 - idx);
+                        scriptText = scriptText.trimmed();
+                        needsPatch = true;
+                    }
+                } else {
+                    needsPatch = true;
+                }
+
+                // Check for ES6 syntax that needs stripping
+                if (scriptText.contains(QStringLiteral("import ")) || scriptText.contains(QStringLiteral("export "))) {
+                    needsPatch = true;
+                }
+
+                if (needsPatch) {
+                    // Clean ES6 import/export syntax to prevent QJSEngine SyntaxErrors
+                    // 1. Remove import statements
+                    QRegularExpression importRegex(QStringLiteral("^[ \\t]*import\\s+.*?\\s+from\\s+['\"].*?['\"];?"), QRegularExpression::MultilineOption);
+                    scriptText.replace(importRegex, QString());
+
+                    // 2. Replace export default function/class with function/class
+                    QRegularExpression exportDefaultFuncRegex(QStringLiteral("^[ \\t]*export\\s+default\\s+(function|class)\\b"), QRegularExpression::MultilineOption);
+                    scriptText.replace(exportDefaultFuncRegex, QStringLiteral("\\1"));
+
+                    // 3. Comment out other export default occurrences
+                    QRegularExpression exportDefaultRegex(QStringLiteral("^[ \\t]*export\\s+default\\b"), QRegularExpression::MultilineOption);
+                    scriptText.replace(exportDefaultRegex, QStringLiteral("// export default"));
+
+                    // 4. Strip export var/let/const/function/class
+                    QRegularExpression exportDeclRegex(QStringLiteral("^[ \\t]*export\\s+(var|let|const|function|class)\\b"), QRegularExpression::MultilineOption);
+                    scriptText.replace(exportDeclRegex, QStringLiteral("\\1"));
+
+                    // 5. Comment out generic export statement lines
+                    QRegularExpression exportRegex(QStringLiteral("^[ \\t]*export\\b"), QRegularExpression::MultilineOption);
+                    scriptText.replace(exportRegex, QStringLiteral("// export"));
+
+                    // 6. Define the script's local _lwe_default_value and _lwe_ensure_init
+                    QString defaultValueCode = QStringLiteral(
+                        "var _lwe_default_value = (function(){\n"
+                        "  var prop = \"%1\".toLowerCase();\n"
+                        "  if(prop.indexOf(\"scale\")!==-1) return new Vec3(1,1,1);\n"
+                        "  if(prop.indexOf(\"color\")!==-1||prop.indexOf(\"origin\")!==-1||prop.indexOf(\"position\")!==-1||prop.indexOf(\"angles\")!==-1||prop.indexOf(\"offset\")!==-1||prop.indexOf(\"direction\")!==-1) return new Vec3(0,0,0);\n"
+                        "  if(prop.indexOf(\"text\")!==-1) return \"\";\n"
+                        "  if(prop.indexOf(\"visible\")!==-1) return true;\n"
+                        "  return 1;\n"
+                        "})();\n"
+                        "var _lwe_initialized = false;\n"
+                        "function _lwe_ensure_init(val) {\n"
+                        "  if(!_lwe_initialized){\n"
+                        "    _lwe_initialized = true;\n"
+                        "    if(typeof init === 'function'){\n"
+                        "      init(val !== undefined ? val : _lwe_default_value);\n"
+                        "    }\n"
+                        "  }\n"
+                        "}\n"
+                    ).arg(propName.contains('"') ? QString() : propName);
+
+                    // 7. Inject guards inside functions in the script text
+                    QRegularExpression funcRegex(QStringLiteral("\\bfunction\\s+(init|update)\\s*\\(\\s*value\\s*\\)\\s*\\{"));
+                    scriptText.replace(funcRegex, QStringLiteral("function \\1(value) {\n  if(typeof value === 'undefined'||value===null){value=_lwe_default_value;}\n  _lwe_ensure_init(value);\n"));
+
+                    QRegularExpression otherFuncRegex(QStringLiteral("\\bfunction\\s+((?!init\\b|update\\b)[a-zA-Z0-9_]+)\\s*\\(([^)]*)\\)\\s*\\{"));
+                    scriptText.replace(otherFuncRegex, QStringLiteral("function \\1(\\2) {\n  _lwe_ensure_init(undefined);\n"));
+
+                    // Prepare latest shim with Vec2, Vec3, Vec4, Color, localStorage, and WEMath
+                    QString shim = QStringLiteral(
+                        "/* LWE GLOBALS INJECT */\n"
+                        "(function(){\n"
+                        "  var g=(typeof globalThis!=='undefined')?globalThis:(typeof window!=='undefined')?window:(typeof global!=='undefined')?global:this;\n"
+                        "  if(g){\n"
+                        "    if(typeof g.Vec2==='undefined'){\n"
+                        "      g.Vec2=class Vec2{\n"
+                        "        constructor(x=0,y=0){if(typeof x==='object'&&x!==null){this.x=x.x||0;this.y=x.y||0;}else{this.x=x;this.y=y;}}\n"
+                        "        multiply(v){if(typeof v==='number')return new Vec2(this.x*v,this.y*v);return new Vec2(this.x*(v.x||0),this.y*(v.y||0));}\n"
+                        "        add(v){return new Vec2(this.x+(v.x||0),this.y+(v.y||0));}\n"
+                        "      };\n"
+                        "    }\n"
+                        "    if(typeof g.Vec3==='undefined'){\n"
+                        "      g.Vec3=class Vec3{\n"
+                        "        constructor(x=0,y=0,z=0){if(typeof x==='object'&&x!==null){this.x=x.x||0;this.y=x.y||0;this.z=x.z||0;}else{this.x=x;this.y=y;this.z=z;}}\n"
+                        "        multiply(v){if(typeof v==='number')return new Vec3(this.x*v,this.y*v,this.z*v);return new Vec3(this.x*(v.x||0),this.y*(v.y||0),this.z*(v.z||0));}\n"
+                        "        add(v){return new Vec3(this.x+(v.x||0),this.y+(v.y||0),this.z+(v.z||0));}\n"
+                        "        subtract(v){return new Vec3(this.x-(v.x||0),this.y-(v.y||0),this.z-(v.z||0));}\n"
+                        "      };\n"
+                        "    }\n"
+                        "    if(typeof g.Vec4==='undefined'){\n"
+                        "      g.Vec4=class Vec4{\n"
+                        "        constructor(x=0,y=0,z=0,w=0){if(typeof x==='object'&&x!==null){this.x=x.x||0;this.y=x.y||0;this.z=x.z||0;this.w=x.w||0;}else{this.x=x;this.y=y;this.z=z;this.w=w;}}\n"
+                        "        multiply(v){if(typeof v==='number')return new Vec4(this.x*v,this.y*v,this.z*v,this.w*v);return new Vec4(this.x*(v.x||0),this.y*(v.y||0),this.z*(v.z||0),this.w*(v.w||0));}\n"
+                        "        add(v){return new Vec4(this.x+(v.x||0),this.y+(v.y||0),this.z+(v.z||0),this.w+(v.w||0));}\n"
+                        "      };\n"
+                        "    }\n"
+                        "    if(typeof g.Color==='undefined'){\n"
+                        "      g.Color=class Color{constructor(r=0,g=0,b=0,a=1){this.r=r;this.g=g;this.b=b;this.a=a;}};\n"
+                        "    }\n"
+                        "    if(typeof g.shared==='undefined') g.shared={};\n"
+                        "    if(typeof g.localStorage==='undefined'){\n"
+                        "      g.localStorage={data:{},LOCATION_GLOBAL:0,LOCATION_LOCAL:1,get(k,l){return this.data[k];},set(k,v,l){this.data[k]=v;}};\n"
+                        "    }\n"
+                        "    if(typeof g.WEMath==='undefined'){\n"
+                        "      g.WEMath={\n"
+                        "        mix(a,b,t){if(typeof a==='object'&&a!==null){if(typeof a.multiply==='function'&&typeof a.add==='function'){return a.multiply(1-t).add(b.multiply(t));}}return a*(1-t)+b*t;},\n"
+                        "        smoothStep(min,max,value){var t=Math.max(0,Math.min(1,(value-min)/(max-min)));return t*t*(3-2*t);},\n"
+                        "        clamp(value,min,max){return Math.max(min,Math.min(max,value));},\n"
+                        "        step(edge,value){return value<edge?0:1;},\n"
+                        "        fract(value){return value-Math.floor(value);},\n"
+                        "        deg2rad:Math.PI/180,\n"
+                        "        rad2deg:180/Math.PI\n"
+                        "      };\n"
+                        "    }\n"
+                        "  }\n"
+                        "})();\n"
+                    );
+
+                    obj.insert(QStringLiteral("script"), shim + defaultValueCode + scriptText);
+                    value = obj;
+                    changed = true;
+                }
+            }
+        }
+        for (auto it = obj.begin(); it != obj.end(); ++it) {
+            if (it.key() == QStringLiteral("script")) continue;
+            QJsonValue val = it.value();
+            bool childChanged = false;
+            injectGlobalsIntoScripts(val, childChanged, it.key());
+            if (childChanged) {
+                obj.insert(it.key(), val);
+                changed = true;
+            }
+        }
+        if (changed) {
+            value = obj;
+        }
+    } else if (value.isArray()) {
+        QJsonArray arr = value.toArray();
+        for (int i = 0; i < arr.size(); ++i) {
+            QJsonValue val = arr.at(i);
+            bool childChanged = false;
+            injectGlobalsIntoScripts(val, childChanged, propName);
+            if (childChanged) {
+                arr.replace(i, val);
+                changed = true;
+            }
+        }
+        if (changed) {
+            value = arr;
+        }
+    }
+}
+
 QByteArray LWEScenePatch::stripEffectsFromSceneJson(const QByteArray &json,
                                                     const QStringList &effectNames)
 {
@@ -30,9 +195,16 @@ QByteArray LWEScenePatch::stripEffectsFromSceneJson(const QByteArray &json,
     if (err.error != QJsonParseError::NoError || !doc.isObject()) return json;
 
     QJsonObject scene = doc.object();
+    bool changed = false;
+
+    QJsonValue sceneVal(scene);
+    injectGlobalsIntoScripts(sceneVal, changed);
+    if (changed) {
+        scene = sceneVal.toObject();
+    }
+
     QJsonArray objects = scene.value(QStringLiteral("objects")).toArray();
     QJsonArray keptObjects;
-    bool changed = false;
 
     for (int i = 0; i < objects.size(); ++i) {
         QJsonObject obj = objects[i].toObject();

@@ -280,22 +280,8 @@ bool LWELibrary::linkFilesRecursively(const QString &srcPath, const QString &dst
         QDir srcDir(srcPath);
         QFileInfo dstInfo(dstPath);
         
-        if (dstInfo.exists()) {
-            if (dstInfo.isSymLink()) {
-                QString target = QFile::symLinkTarget(dstPath);
-                if (target == srcPath) return true;
-                QFile::remove(dstPath);
-            } else if (!dstInfo.isDir()) {
-                QFile::remove(dstPath);
-            }
-        }
-
-        if (!QFile::exists(dstPath)) {
-            bool ok = QFile::link(srcPath, dstPath);
-            if (ok) {
-                qWarning() << "[lwepaper] Linked directory" << srcPath << "to" << dstPath;
-                return true;
-            }
+        if (dstInfo.exists() && dstInfo.isSymLink()) {
+            QFile::remove(dstPath);
         }
 
         QDir dstDir(dstPath);
