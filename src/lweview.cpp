@@ -323,11 +323,24 @@ void LWEView::launchLwe()
     // Apply known-bad-effect patches BEFORE LWE reads the scene.pkg.
     // This is the "shader-patch built into the plugin" path — it strips
     // image-effects we know crash LWE's GLSL compiler (e.g. waterflow on
-    // Valtiel) so the rest of the scene renders.
+    // Valtiel), links any implicit workshop/<id>/ asset references that ARE
+    // subscribed, and stubs anything still missing so the rest of the scene
+    // renders instead of failing outright.
     {
         const QString wpPath = home + QStringLiteral("/.local/share/Steam/steamapps/workshop/content/431960/") + m_wid;
         if (LWEScenePatch::patchIfNeeded(wpPath))
             qWarning() << "[lwepaper] scene.pkg patched for" << m_wid;
+
+        // Some referenced assets belong to workshop items the user hasn't
+        // subscribed to — we stub those so LWE doesn't crash, but the real
+        // pixels (logos, custom fonts, etc.) genuinely can't appear without
+        // them. Surface this clearly instead of a silently-missing logo.
+        const QStringList unresolved = LWEScenePatch::unresolvedDependencies(wpPath);
+        if (!unresolved.isEmpty()) {
+            qWarning() << "[lwepaper]" << m_wid << "references un-subscribed workshop item(s):"
+                       << unresolved << "— some assets (logos/fonts/models) will be blank until subscribed."
+                       << "Subscribe at https://steamcommunity.com/sharedfiles/filedetails/?id=" << unresolved.first();
+        }
     }
 
     QStringList presetArgs;
@@ -543,6 +556,14 @@ void LWEView::launchLwe()
     if (!presetArgs.isEmpty())
         args << presetArgs;
 
+    // Unique per-instance path (object address disambiguates multiple
+    // screens). Remove the previous log for this instance before truncating
+    // into a freshly-named one for the new workshop id.
+    if (!m_logPath.isEmpty()) QFile::remove(m_logPath);
+    m_logPath = QStringLiteral("/tmp/lwepaper-lwe-%1-%2.log")
+                    .arg(m_wid)
+                    .arg(reinterpret_cast<quintptr>(this), 0, 16);
+
     m_proc = new QProcess(this);
     auto env = QProcessEnvironment::systemEnvironment();
     env.remove(QStringLiteral("LD_LIBRARY_PATH"));
@@ -550,7 +571,7 @@ void LWEView::launchLwe()
     m_proc->setProgram(nixgl);
     m_proc->setArguments(args);
     m_proc->setProcessChannelMode(QProcess::MergedChannels);
-    m_proc->setStandardOutputFile(QStringLiteral("/tmp/lwepaper-lwe.log"), QIODevice::Truncate);
+    m_proc->setStandardOutputFile(m_logPath, QIODevice::Truncate);
 
     connect(m_proc, &QProcess::finished, this, &LWEView::onLweFinished);
     connect(m_proc, &QProcess::errorOccurred, this, &LWEView::onLweError);
@@ -599,8 +620,9 @@ void LWEView::onLweFinished(int code, QProcess::ExitStatus st)
 {
     // Pull out a human-readable reason by inspecting the tail of LWE's stdout.
     // Generic "see log" is unhelpful — the user can rarely see that file.
-    auto extractReason = []() -> QString {
-        QFile f(QStringLiteral("/tmp/lwepaper-lwe.log"));
+    const QString logPath = m_logPath;
+    auto extractReason = [logPath]() -> QString {
+        QFile f(logPath);
         if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
         // read last ~8KB
         const auto size = f.size();
@@ -635,8 +657,8 @@ void LWEView::onLweFinished(int code, QProcess::ExitStatus st)
     if (!human.isEmpty())
         setStatus(QStringLiteral("%1: %2").arg(reason, human));
     else
-        setStatus(QStringLiteral("%1 (workshop %2). See /tmp/lwepaper-lwe.log for details.")
-                  .arg(reason, m_wid));
+        setStatus(QStringLiteral("%1 (workshop %2). See %3 for details.")
+                  .arg(reason, m_wid, logPath));
     m_lweWindow = 0;
     m_redirected = false;
     update();

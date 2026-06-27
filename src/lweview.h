@@ -123,6 +123,12 @@ private:
     void scheduleRelaunch();
     bool m_ready = false;        // set once initial QML bindings settle
 
+    QString m_logPath;        // unique per-instance LWE stdout log path —
+                              // a single shared path across multi-screen
+                              // instances let one screen's Truncate wipe
+                              // another's in-progress log and let unbounded
+                              // per-frame script output balloon to 90+ MB.
+
     QPointer<QProcess> m_proc;
     QTimer m_findTimer;
     unsigned long m_lweWindow = 0;       // X11 Window id

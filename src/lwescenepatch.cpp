@@ -222,6 +222,14 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                     "        constructor(x=0,y=0){if(typeof x==='object'&&x!==null){this.x=x.x||0;this.y=x.y||0;}else{this.x=x;this.y=y;}}\n"
                     "        multiply(v){if(typeof v==='number')return new Vec2(this.x*v,this.y*v);return new Vec2(this.x*(v.x||0),this.y*(v.y||0));}\n"
                     "        add(v){return new Vec2(this.x+(v.x||0),this.y+(v.y||0));}\n"
+                    "        subtract(v){return new Vec2(this.x-(v.x||0),this.y-(v.y||0));}\n"
+                    "        divide(v){if(typeof v==='number')return new Vec2(this.x/v,this.y/v);return new Vec2(this.x/(v.x||1),this.y/(v.y||1));}\n"
+                    "        length(){return Math.sqrt(this.x*this.x+this.y*this.y);}\n"
+                    "        normalize(){var l=this.length()||1;return new Vec2(this.x/l,this.y/l);}\n"
+                    "        dot(v){return this.x*(v.x||0)+this.y*(v.y||0);}\n"
+                    "        clone(){return new Vec2(this.x,this.y);}\n"
+                    "        set(x,y){this.x=x;this.y=y;return this;}\n"
+                    "        lerp(v,t){return new Vec2(this.x+((v.x||0)-this.x)*t,this.y+((v.y||0)-this.y)*t);}\n"
                     "      };\n"
                     "    }\n"
                     "    if(typeof g.Vec3==='undefined'){\n"
@@ -230,6 +238,14 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                     "        multiply(v){if(typeof v==='number')return new Vec3(this.x*v,this.y*v,this.z*v);return new Vec3(this.x*(v.x||0),this.y*(v.y||0),this.z*(v.z||0));}\n"
                     "        add(v){return new Vec3(this.x+(v.x||0),this.y+(v.y||0),this.z+(v.z||0));}\n"
                     "        subtract(v){return new Vec3(this.x-(v.x||0),this.y-(v.y||0),this.z-(v.z||0));}\n"
+                    "        divide(v){if(typeof v==='number')return new Vec3(this.x/v,this.y/v,this.z/v);return new Vec3(this.x/(v.x||1),this.y/(v.y||1),this.z/(v.z||1));}\n"
+                    "        length(){return Math.sqrt(this.x*this.x+this.y*this.y+this.z*this.z);}\n"
+                    "        normalize(){var l=this.length()||1;return new Vec3(this.x/l,this.y/l,this.z/l);}\n"
+                    "        dot(v){return this.x*(v.x||0)+this.y*(v.y||0)+this.z*(v.z||0);}\n"
+                    "        cross(v){return new Vec3(this.y*v.z-this.z*v.y,this.z*v.x-this.x*v.z,this.x*v.y-this.y*v.x);}\n"
+                    "        clone(){return new Vec3(this.x,this.y,this.z);}\n"
+                    "        set(x,y,z){this.x=x;this.y=y;this.z=z;return this;}\n"
+                    "        lerp(v,t){return new Vec3(this.x+((v.x||0)-this.x)*t,this.y+((v.y||0)-this.y)*t,this.z+((v.z||0)-this.z)*t);}\n"
                     "      };\n"
                     "    }\n"
                     "    if(typeof g.Vec4==='undefined'){\n"
@@ -237,10 +253,23 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                     "        constructor(x=0,y=0,z=0,w=0){if(typeof x==='object'&&x!==null){this.x=x.x||0;this.y=x.y||0;this.z=x.z||0;this.w=x.w||0;}else{this.x=x;this.y=y;this.z=z;this.w=w;}}\n"
                     "        multiply(v){if(typeof v==='number')return new Vec4(this.x*v,this.y*v,this.z*v,this.w*v);return new Vec4(this.x*(v.x||0),this.y*(v.y||0),this.z*(v.z||0),this.w*(v.w||0));}\n"
                     "        add(v){return new Vec4(this.x+(v.x||0),this.y+(v.y||0),this.z+(v.z||0),this.w+(v.w||0));}\n"
+                    "        subtract(v){return new Vec4(this.x-(v.x||0),this.y-(v.y||0),this.z-(v.z||0),this.w-(v.w||0));}\n"
+                    "        divide(v){if(typeof v==='number')return new Vec4(this.x/v,this.y/v,this.z/v,this.w/v);return new Vec4(this.x/(v.x||1),this.y/(v.y||1),this.z/(v.z||1),this.w/(v.w||1));}\n"
+                    "        length(){return Math.sqrt(this.x*this.x+this.y*this.y+this.z*this.z+this.w*this.w);}\n"
+                    "        normalize(){var l=this.length()||1;return new Vec4(this.x/l,this.y/l,this.z/l,this.w/l);}\n"
+                    "        dot(v){return this.x*(v.x||0)+this.y*(v.y||0)+this.z*(v.z||0)+this.w*(v.w||0);}\n"
+                    "        clone(){return new Vec4(this.x,this.y,this.z,this.w);}\n"
+                    "        set(x,y,z,w){this.x=x;this.y=y;this.z=z;this.w=w;return this;}\n"
+                    "        lerp(v,t){return new Vec4(this.x+((v.x||0)-this.x)*t,this.y+((v.y||0)-this.y)*t,this.z+((v.z||0)-this.z)*t,this.w+((v.w||0)-this.w)*t);}\n"
                     "      };\n"
                     "    }\n"
                     "    if(typeof g.Color==='undefined'){\n"
-                    "      g.Color=class Color{constructor(r=0,g=0,b=0,a=1){this.r=r;this.g=g;this.b=b;this.a=a;}};\n"
+                    "      g.Color=class Color{\n"
+                    "        constructor(r=0,g=0,b=0,a=1){this.r=r;this.g=g;this.b=b;this.a=a;}\n"
+                    "        multiply(v){if(typeof v==='number')return new Color(this.r*v,this.g*v,this.b*v,this.a);return new Color(this.r*(v.r||0),this.g*(v.g||0),this.b*(v.b||0),this.a);}\n"
+                    "        add(v){return new Color(this.r+(v.r||0),this.g+(v.g||0),this.b+(v.b||0),this.a);}\n"
+                    "        clone(){return new Color(this.r,this.g,this.b,this.a);}\n"
+                    "      };\n"
                     "    }\n"
                     "    if(typeof g.shared==='undefined') g.shared={};\n"
                     "    if(typeof g.localStorage==='undefined'){\n"
@@ -267,6 +296,36 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                     "        if('x' in v) return new Vec2(v.x, v.y);\n"
                     "        return v;\n"
                     "      };\n"
+                    "    }\n"
+                    // Some scripts run as standalone top-level code outside any
+                    // layer's init/update binding (e.g. cursor-click handlers
+                    // wired at scene scope), where LWE doesn't inject the usual
+                    // thisLayer/thisScene/engine/print bindings — causing
+                    // ReferenceErrors that abort the WHOLE script, including
+                    // unrelated logic later in the same file. Guard with
+                    // typeof checks so real LWE bindings (when present) are
+                    // never clobbered.
+                    "    if(typeof g.print==='undefined'){ g.print=function(){}; }\n"
+                    "    if(typeof g.engine==='undefined'){\n"
+                    "      g.engine={timeOfDay:0,frameTime:0.016,width:1920,height:1080,\n"
+                    "        soundProcessing:{audioBars:[],averageVolume:0,bassLevel:0,midLevel:0,trebleLevel:0}};\n"
+                    "    }\n"
+                    "    if(typeof g.createScriptProperties==='undefined'){\n"
+                    "      g.createScriptProperties=function(){\n"
+                    "        var api={};\n"
+                    "        var chain=function(){return api;};\n"
+                    "        ['addCheckbox','addSlider','addColor','addText','addCombo','addTextSmall',\n"
+                    "         'addTextLarge','addInput','addSeparator','addButton'].forEach(function(m){api[m]=chain;});\n"
+                    "        api.finish=function(){return {};};\n"
+                    "        return api;\n"
+                    "      };\n"
+                    "    }\n"
+                    "    if(typeof g.thisLayer==='undefined'){\n"
+                    "      g.thisLayer={origin:new Vec3(0,0,0),angles:new Vec3(0,0,0),scale:new Vec3(1,1,1),\n"
+                    "        visible:true,alpha:1,parallaxDepth:new Vec2(0,0),perspective:new Vec2(0,0),text:''};\n"
+                    "    }\n"
+                    "    if(typeof g.thisScene==='undefined'){\n"
+                    "      g.thisScene={getLayer:function(){return g.thisLayer;}};\n"
                     "    }\n"
                     "  }\n"
                     "})();\n"
@@ -777,14 +836,46 @@ int LWEScenePatch::stubMissingAssets(const QString &wallpaperPath)
 
 QStringList LWEScenePatch::unresolvedDependencies(const QString &wallpaperPath)
 {
+    // NOTE: this deliberately does NOT just check "is there a sibling
+    // <id>/project.json folder" — Steam's workshop publishing pipeline often
+    // bakes the full closure of cross-item asset references directly into
+    // the wallpaper's OWN scene.pkg (e.g. GTA 6's logo/font/shader files all
+    // live inside its own .pkg under "models/workshop/<id>/..." entries even
+    // though <id> was never separately subscribed). Flagging those as
+    // "unresolved" would be a false positive — the asset genuinely is
+    // present, just namespaced. We only report an id as unresolved when at
+    // least one of its referenced files truly can't be found anywhere: not
+    // embedded in this wallpaper's own pkg, not provided by a separately
+    // subscribed sibling, and not in Wallpaper Engine's shared assets dir.
+    auto parsed = parsePkg(wallpaperPath + QStringLiteral("/scene.pkg"));
+    if (!parsed.ok) return {};
+
+    QSet<QString> inPkg;
+    for (const auto &e : parsed.entries) inPkg.insert(e.name);
+
     const QString workshopRoot = QFileInfo(wallpaperPath).absolutePath();
-    const QStringList deps = detectImplicitDependencies(wallpaperPath);
-    QStringList missing;
-    for (const QString &dep : deps) {
-        if (!QFileInfo::exists(workshopRoot + QLatin1Char('/') + dep + QStringLiteral("/project.json")))
-            missing << dep;
+    const QString assetsRoot = QDir::homePath() +
+        QStringLiteral("/.local/share/Steam/steamapps/common/wallpaper_engine/assets");
+    const QStringList refs = collectAssetReferences(readSceneJson(parsed));
+
+    static const QRegularExpression re(QStringLiteral("^(.*?)workshop/(\\d{4,})/(.+)$"));
+    QSet<QString> unresolvedIds;
+    for (const QString &ref : refs) {
+        const auto m = re.match(ref);
+        if (!m.hasMatch()) continue;                                        // not a cross-workshop ref
+        if (inPkg.contains(ref)) continue;                                  // self-contained
+        if (QFileInfo::exists(assetsRoot + QLatin1Char('/') + ref)) continue; // global WE asset
+
+        const QString depId = m.captured(2);
+        const QString tail  = m.captured(3);
+        const QString depDir = workshopRoot + QLatin1Char('/') + depId;
+        if (QFileInfo::exists(depDir + QLatin1Char('/') + tail)) continue;  // sibling sub, flat layout
+        if (QFileInfo::exists(depDir + QLatin1Char('/') + ref)) continue;   // sibling sub, mirrored layout
+        unresolvedIds.insert(depId);
     }
-    return missing;
+    QStringList out = unresolvedIds.values();
+    out.sort();
+    return out;
 }
 
 bool LWEScenePatch::patchIfNeeded(const QString &wallpaperPath)
