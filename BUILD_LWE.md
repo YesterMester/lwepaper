@@ -116,6 +116,42 @@ dir, then `exec`s `linux-wallpaperengine.real`. See the file in
 checked into this repo since it's machine-specific generated output, not
 source.
 
+## Local engine patches (apply before building)
+
+We carry local source patches in [`patches/`](patches/) on top of upstream
+`linux-wallpaperengine`. Apply them in the clone before configuring:
+
+```sh
+cd ~/code/lwe-source
+git apply ~/code/lwepaper/patches/*.patch
+```
+
+- **`0001-puppet-single-pass-composite.patch`** — fixes objects that have a
+  *puppet mesh* but only a *single render pass* (no effects, no colour-blend).
+  In that case `CImage::setupPasses()` collapses the puppet draw and the final
+  screen composite into one pass; the puppet geometry callback hard-binds the
+  puppet vertex buffer (local `[0..size]` space) and that local mesh then gets
+  drawn through the *screen* projection, so the object lands at its raw mesh
+  coordinates instead of its `origin`. GTA 6's helicopter rendered in the wrong
+  corner (bottom-right, behind the motorcycle) because of this. The patch
+  appends a neutral `effectpassthrough` composite pass for single-pass puppet
+  objects so the puppet renders into its own FBO first and is then composited
+  at the correct origin. **General fix** — any single-pass puppet object in any
+  wallpaper benefits; multi-pass puppet objects (e.g. GTA 6's flamingo) already
+  had a composite pass and are unaffected.
+
+## Wrapper: `$HERE` must lead `LD_LIBRARY_PATH`
+
+The `linux-wallpaperengine` wrapper script exports
+`LD_LIBRARY_PATH="$HERE:$HERE/cef:…"`. `$HERE` (our install dir, holding the
+freshly-built `liblinux-wallpaperengine-lib.so`) **must be first**: the Nix
+paths appended from `runtime-libpath.txt` include the nixpkgs-cached prebuilt,
+which ships its *own* `liblinux-wallpaperengine-lib.so` with an older ABI. If
+that copy resolves first the binary dies at startup with
+`undefined symbol: …TextureCache…`. Re-deploy the lib alongside the wrapper
+whenever you rebuild (`strip --strip-debug` is safe; `--strip-unneeded` removed
+needed exported vtable symbols, don't use it on the `.so`).
+
 ## Verifying
 
 ```sh

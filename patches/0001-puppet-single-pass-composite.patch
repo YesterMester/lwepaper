@@ -1,0 +1,45 @@
+diff --git a/src/WallpaperEngine/Render/Objects/CImage.cpp b/src/WallpaperEngine/Render/Objects/CImage.cpp
+index be0baca..c47a672 100644
+--- a/src/WallpaperEngine/Render/Objects/CImage.cpp
++++ b/src/WallpaperEngine/Render/Objects/CImage.cpp
+@@ -766,6 +766,40 @@ void CImage::setup () {
+ 	));
+     }
+ 
++    // Puppet meshes need a dedicated final composite pass. A puppet object's
++    // first pass renders the (animated/deformed) mesh into the object's own
++    // FBO using the local copy-projection; a separate, later pass is then
++    // responsible for compositing that FBO onto the screen at the object's
++    // scene-space origin. When a puppet object has only a SINGLE pass (no
++    // effects, no colour-blend), setupPasses() collapses the puppet draw and
++    // the final screen composite into the same pass — and the puppet geometry
++    // callback (which hard-binds the puppet vertex buffer, see
++    // setupPuppetGeometryCallback) then draws the local-space puppet mesh
++    // through the *screen* projection, placing the object at its raw mesh
++    // coordinates instead of its origin. GTA 6's helicopter (single-pass
++    // genericimage4 + puppet) rendered in the wrong corner because of this.
++    // Append a neutral pass-through pass so the puppet renders into its FBO
++    // first and is then composited at the correct position.
++    // effectpassthrough.json uses "normal" blending with no BLENDMODE combo,
++    // so the object's appearance is unchanged. We reuse the colorBlending
++    // material slot — it is guaranteed unused here, since any colorBlendMode>0
++    // would already have pushed a pass and made size() > 1.
++    if (this->m_hasPuppetMesh && this->m_passes.size () == 1) {
++	this->m_materials.colorBlending.material
++	    = MaterialParser::load (this->getScene ().getScene ().project, "materials/util/effectpassthrough.json");
++	this->m_materials.colorBlending.override = std::make_unique<ImageEffectPassOverride> (ImageEffectPassOverride {
++	    .id = -1,
++	    .combos = {},
++	    .constants = {},
++	    .textures = {},
++	});
++
++	this->m_passes.push_back (new CPass (
++	    *this, std::make_shared<FBOProvider> (this), **this->m_materials.colorBlending.material->passes.begin (),
++	    *this->m_materials.colorBlending.override, std::nullopt, std::nullopt
++	));
++    }
++
+     // if there's more than one pass the blendmode has to be moved from the beginning to the end
+     if (this->m_passes.size () > 1) {
+ 	const auto first = this->m_passes.begin ();
