@@ -517,7 +517,22 @@ void LWEView::launchLwe()
         }
     }
     const QString nixgl = home + QStringLiteral("/.nix-profile/bin/nixGL");
-    const QString lwe   = home + QStringLiteral("/.nix-profile/bin/linux-wallpaperengine");
+    // Prefer our own custom-built linux-wallpaperengine (built from current
+    // upstream source — see ~/code/lwepaper/BUILD_LWE.md) over the Nix-
+    // packaged 2026-05-12 snapshot. That snapshot has a real bug in its
+    // native VectorAdapter: reading x/y/z off a vector-typed JS object via
+    // JS_GetPropertyStr doesn't reliably trigger the class's exotic property
+    // getter, so script patterns like `new Vec3(otherVec.multiply(scalar))`
+    // (the common hover-to-scale workshop utility script, e.g. workshopId
+    // 3489089062) silently produce a degenerate (0,0,0) result — collapsing
+    // whatever the script drives (most visibly an image's scale, rendering
+    // it at zero size) with no error anywhere. Confirmed fixed upstream by
+    // building current HEAD. Falls back to the Nix-profile binary if our
+    // custom build isn't installed.
+    const QString customLwe = home + QStringLiteral("/.local/share/lwepaper/lwe-custom/linux-wallpaperengine");
+    const QString lwe = QFileInfo::exists(customLwe)
+        ? customLwe
+        : home + QStringLiteral("/.nix-profile/bin/linux-wallpaperengine");
     if (!QFileInfo::exists(nixgl) || !QFileInfo::exists(lwe)) {
         setStatus(QStringLiteral("missing nixGL or linux-wallpaperengine"));
         return;

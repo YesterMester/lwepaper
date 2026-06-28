@@ -272,8 +272,27 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                     "(function(){\n"
                     "  var g=(typeof globalThis!=='undefined')?globalThis:(typeof window!=='undefined')?window:(typeof global!=='undefined')?global:this;\n"
                     "  if(g){\n"
-                    "    if(typeof g.Vec2==='undefined'){\n"
-                    "      g.Vec2=class Vec2{\n"
+                    // NOTE: Vec2/Vec3/Vec4/Color are ALWAYS overridden here,
+                    // not just supplied when missing. LWE's own native
+                    // VectorAdapter (Scripting/Adapters/VectorAdapter.cpp)
+                    // has a real bug: vector_get()'s JS_TAG_OBJECT branch
+                    // reads x/y/z/w off the source object via plain
+                    // JS_GetPropertyStr, which does not reliably trigger the
+                    // class's exotic property getter for vector-typed
+                    // sources — so `new Vec3(otherVec3)` (the
+                    // multiply-then-rewrap pattern used by the common
+                    // hover-to-scale workshop utility script, e.g.
+                    // workshopId 3489089062) silently produces a degenerate
+                    // (0,0,0) vector instead of copying the source. That
+                    // collapses whatever object the script drives — most
+                    // visibly an image's `scale`, which then renders at
+                    // zero size (invisible) with no error anywhere. Confirmed
+                    // by reproducing against GTA 6's "logo1"/"logo2" objects:
+                    // neutralizing the script entirely restored the logo;
+                    // overriding Vec2/Vec3/Vec4 here with correct,
+                    // object-input-aware constructors fixes it without
+                    // having to touch the wallpaper's own script.
+                    "    g.Vec2=class Vec2{\n"
                     "        constructor(x=0,y=0){if(typeof x==='object'&&x!==null){this.x=x.x||0;this.y=x.y||0;}else{this.x=x;this.y=y;}}\n"
                     "        multiply(v){if(typeof v==='number')return new Vec2(this.x*v,this.y*v);return new Vec2(this.x*(v.x||0),this.y*(v.y||0));}\n"
                     "        add(v){return new Vec2(this.x+(v.x||0),this.y+(v.y||0));}\n"
@@ -285,10 +304,8 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                     "        clone(){return new Vec2(this.x,this.y);}\n"
                     "        set(x,y){this.x=x;this.y=y;return this;}\n"
                     "        lerp(v,t){return new Vec2(this.x+((v.x||0)-this.x)*t,this.y+((v.y||0)-this.y)*t);}\n"
-                    "      };\n"
-                    "    }\n"
-                    "    if(typeof g.Vec3==='undefined'){\n"
-                    "      g.Vec3=class Vec3{\n"
+                    "    };\n"
+                    "    g.Vec3=class Vec3{\n"
                     "        constructor(x=0,y=0,z=0){if(typeof x==='object'&&x!==null){this.x=x.x||0;this.y=x.y||0;this.z=x.z||0;}else{this.x=x;this.y=y;this.z=z;}}\n"
                     "        multiply(v){if(typeof v==='number')return new Vec3(this.x*v,this.y*v,this.z*v);return new Vec3(this.x*(v.x||0),this.y*(v.y||0),this.z*(v.z||0));}\n"
                     "        add(v){return new Vec3(this.x+(v.x||0),this.y+(v.y||0),this.z+(v.z||0));}\n"
@@ -301,10 +318,8 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                     "        clone(){return new Vec3(this.x,this.y,this.z);}\n"
                     "        set(x,y,z){this.x=x;this.y=y;this.z=z;return this;}\n"
                     "        lerp(v,t){return new Vec3(this.x+((v.x||0)-this.x)*t,this.y+((v.y||0)-this.y)*t,this.z+((v.z||0)-this.z)*t);}\n"
-                    "      };\n"
-                    "    }\n"
-                    "    if(typeof g.Vec4==='undefined'){\n"
-                    "      g.Vec4=class Vec4{\n"
+                    "    };\n"
+                    "    g.Vec4=class Vec4{\n"
                     "        constructor(x=0,y=0,z=0,w=0){if(typeof x==='object'&&x!==null){this.x=x.x||0;this.y=x.y||0;this.z=x.z||0;this.w=x.w||0;}else{this.x=x;this.y=y;this.z=z;this.w=w;}}\n"
                     "        multiply(v){if(typeof v==='number')return new Vec4(this.x*v,this.y*v,this.z*v,this.w*v);return new Vec4(this.x*(v.x||0),this.y*(v.y||0),this.z*(v.z||0),this.w*(v.w||0));}\n"
                     "        add(v){return new Vec4(this.x+(v.x||0),this.y+(v.y||0),this.z+(v.z||0),this.w+(v.w||0));}\n"
@@ -316,16 +331,13 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                     "        clone(){return new Vec4(this.x,this.y,this.z,this.w);}\n"
                     "        set(x,y,z,w){this.x=x;this.y=y;this.z=z;this.w=w;return this;}\n"
                     "        lerp(v,t){return new Vec4(this.x+((v.x||0)-this.x)*t,this.y+((v.y||0)-this.y)*t,this.z+((v.z||0)-this.z)*t,this.w+((v.w||0)-this.w)*t);}\n"
-                    "      };\n"
-                    "    }\n"
-                    "    if(typeof g.Color==='undefined'){\n"
-                    "      g.Color=class Color{\n"
-                    "        constructor(r=0,g=0,b=0,a=1){this.r=r;this.g=g;this.b=b;this.a=a;}\n"
+                    "    };\n"
+                    "    g.Color=class Color{\n"
+                    "        constructor(r=0,g=0,b=0,a=1){if(typeof r==='object'&&r!==null){this.r=r.r||0;this.g=r.g||0;this.b=r.b||0;this.a=r.a===undefined?1:r.a;}else{this.r=r;this.g=g;this.b=b;this.a=a;}}\n"
                     "        multiply(v){if(typeof v==='number')return new Color(this.r*v,this.g*v,this.b*v,this.a);return new Color(this.r*(v.r||0),this.g*(v.g||0),this.b*(v.b||0),this.a);}\n"
                     "        add(v){return new Color(this.r+(v.r||0),this.g+(v.g||0),this.b+(v.b||0),this.a);}\n"
                     "        clone(){return new Color(this.r,this.g,this.b,this.a);}\n"
-                    "      };\n"
-                    "    }\n"
+                    "    };\n"
                     "    if(typeof g.shared==='undefined') g.shared={};\n"
                     "    if(typeof g.localStorage==='undefined'){\n"
                     "      g.localStorage={data:{},LOCATION_GLOBAL:0,LOCATION_LOCAL:1,get(k,l){return this.data[k];},set(k,v,l){this.data[k]=v;}};\n"
