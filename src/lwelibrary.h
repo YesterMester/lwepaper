@@ -61,6 +61,15 @@ public:
     // Pre-link dependencies for ALL wallpapers in the library. Run once on
     // scan; the picker can also call it via the "Rescan" button.
     Q_INVOKABLE int prepareAllDependencies();
+    // Force the full patch pipeline (dependency linking, missing-asset
+    // stubbing, and scene.pkg effect/script patching) for a single wallpaper.
+    // Exposed for a manual "Patch this wallpaper" button the user can hit when
+    // a wallpaper renders with issues. Returns true if anything was changed.
+    Q_INVOKABLE bool patchWallpaper(const QString &workshopId);
+    // Run the same patch pipeline over EVERY wallpaper in the library (the
+    // "Patch all" button). Non-scene wallpapers are skipped cleanly. Returns
+    // the number of wallpapers that were actually changed.
+    Q_INVOKABLE int patchAllWallpapers();
     // Return the list of dependency workshop ids that aren't downloaded for
     // the given wallpaper. Empty list means everything needed is present.
     Q_INVOKABLE QStringList missingDependencies(const QString &workshopId) const;

@@ -96,6 +96,12 @@ ColumnLayout {
         }
 
         Button { text: "Rescan"; onClicked: library.reload() }
+        Button {
+            text: "Patch all…"
+            ToolTip.visible: hovered
+            ToolTip.text: "Re-run the rendering-fix patcher on every wallpaper"
+            onClicked: patchAllConfirm.open()
+        }
     }
 
     // ─── Wallpaper grid ──────────────────────────────────────────────
@@ -188,11 +194,92 @@ ColumnLayout {
         Layout.fillWidth: true
         Label { text: "Selected:" }
         Label { text: root.cfg_WorkshopId || "(none)"; font.bold: true; Layout.fillWidth: true }
+        Button {
+            text: "Patch this wallpaper"
+            enabled: root.cfg_WorkshopId !== ""
+            ToolTip.visible: hovered
+            ToolTip.text: "Re-apply rendering fixes to the selected wallpaper if it looks wrong"
+            onClicked: {
+                var changed = library.patchWallpaper(root.cfg_WorkshopId)
+                patchResult.title = "Patch wallpaper"
+                patchResult.message = changed
+                    ? "Re-patched wallpaper " + root.cfg_WorkshopId +
+                      ".\n\nThe wallpaper will reload now to apply the fixes."
+                    : "No changes were needed for " + root.cfg_WorkshopId +
+                      ".\n\nIt is already patched, or this wallpaper has nothing the patcher can fix."
+                patchResult.open()
+                if (changed)
+                    root.cfg_RelaunchTrigger = root.cfg_RelaunchTrigger + 1
+            }
+        }
         TextField {
             Layout.preferredWidth: 200
             placeholderText: "or type id…"
             text: root.cfg_WorkshopId
             onEditingFinished: if (text !== root.cfg_WorkshopId) root.cfg_WorkshopId = text
+        }
+    }
+
+    // ─── Patch confirm + result dialogs ──────────────────────────────
+    Dialog {
+        id: patchAllConfirm
+        title: "Patch all wallpapers?"
+        modal: true
+        width: Math.min(parent ? parent.width - 40 : 480, 480)
+        x: parent ? (parent.width - width) / 2 : 0
+        y: parent ? (parent.height - height) / 2 : 0
+        standardButtons: Dialog.Ok | Dialog.Cancel
+
+        ColumnLayout {
+            width: parent.width
+            spacing: 10
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+                Text { text: "⚠️"; font.pixelSize: 24; Layout.alignment: Qt.AlignTop }
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    text: "This runs the rendering-fix patcher on EVERY wallpaper in your " +
+                          "library — the same patching that normally runs automatically when a " +
+                          "wallpaper loads.\n\n" +
+                          "For each scene wallpaper it edits the wallpaper's scene.pkg in place: " +
+                          "strips known-crashing effects, injects script-compatibility shims, links " +
+                          "dependencies, stubs missing assets, and hides widgets LWE can't drive.\n\n" +
+                          "It is idempotent and only rewrites files that actually need changes, but " +
+                          "it does touch many files and can take a moment. Non-scene wallpapers are " +
+                          "skipped. Continue?"
+                }
+            }
+        }
+
+        onAccepted: {
+            var n = library.patchAllWallpapers()
+            patchResult.title = "Patch all"
+            patchResult.message = "Patched " + n + " wallpaper(s).\n\n" +
+                (n > 0 ? "The current wallpaper will reload to apply any fixes."
+                       : "Nothing needed changes — everything was already patched.")
+            patchResult.open()
+            if (n > 0)
+                root.cfg_RelaunchTrigger = root.cfg_RelaunchTrigger + 1
+        }
+    }
+
+    Dialog {
+        id: patchResult
+        property string message: ""
+        title: "Patch result"
+        modal: true
+        width: Math.min(parent ? parent.width - 40 : 440, 440)
+        x: parent ? (parent.width - width) / 2 : 0
+        y: parent ? (parent.height - height) / 2 : 0
+        standardButtons: Dialog.Ok
+
+        Label {
+            width: parent.width
+            wrapMode: Text.WordWrap
+            text: patchResult.message
         }
     }
 

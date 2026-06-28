@@ -1,4 +1,5 @@
 #include "lwelibrary.h"
+#include "lwescenepatch.h"
 
 #include <QDir>
 #include <QFile>
@@ -369,6 +370,30 @@ int LWELibrary::prepareAllDependencies()
         if (any) ++prepared;
     }
     return prepared;
+}
+
+bool LWELibrary::patchWallpaper(const QString &workshopId)
+{
+    for (const auto &e : m_all) {
+        if (e.id != workshopId) continue;
+        const bool changed = LWEScenePatch::patchIfNeeded(e.path);
+        qInfo() << "[lwepaper] manual patch of" << workshopId
+                << (changed ? "applied changes" : "no changes needed");
+        return changed;
+    }
+    qWarning() << "[lwepaper] manual patch: workshop id" << workshopId << "not found in library";
+    return false;
+}
+
+int LWELibrary::patchAllWallpapers()
+{
+    int patched = 0;
+    for (const auto &e : m_all) {
+        // patchIfNeeded no-ops cleanly on non-scene wallpapers (no scene.pkg).
+        if (LWEScenePatch::patchIfNeeded(e.path)) ++patched;
+    }
+    qInfo() << "[lwepaper] Patch all: changed" << patched << "of" << m_all.size() << "wallpaper(s)";
+    return patched;
 }
 
 QStringList LWELibrary::missingDependencies(const QString &workshopId) const
