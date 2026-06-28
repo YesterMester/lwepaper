@@ -450,6 +450,62 @@ QByteArray LWEScenePatch::stripEffectsFromSceneJson(const QByteArray &json,
     }
 
     QJsonArray objects = scene.value(QStringLiteral("objects")).toArray();
+
+    // Hide media-playback-driven widgets. Some scenes (e.g. GTA 6's
+    // now-playing music widget — the "Mover" object and its vinyl/album/
+    // text subtree) gate an entire object subtree's visibility on a
+    // `MediaPlaybackEvent` script: the root layer is hidden in init() and
+    // only shown when the host media player reports a playing/paused track.
+    // linux-wallpaperengine has no media-playback integration, so that event
+    // never fires AND its init() hide never takes effect — the whole widget
+    // then renders as a giant opaque solidlayer (a white box) covering the
+    // wallpaper art (in GTA 6 it hid the bottom-row panels, the corner
+    // motorcycle and the helicopter). Force any such object, and every
+    // descendant of it, to visible=false so it stays hidden — exactly as it
+    // would look on a fresh WE install with nothing playing.
+    {
+        QSet<double> mediaRoots;
+        QHash<double, double> parentOf;     // child id -> parent id
+        QHash<double, int> idToIndex;
+        for (int i = 0; i < objects.size(); ++i) {
+            const QJsonObject o = objects[i].toObject();
+            if (!o.contains(QStringLiteral("id"))) continue;
+            const double id = o.value(QStringLiteral("id")).toDouble();
+            idToIndex.insert(id, i);
+            const QJsonValue parent = o.value(QStringLiteral("parent"));
+            if (parent.isDouble()) parentOf.insert(id, parent.toDouble());
+            const QJsonValue vis = o.value(QStringLiteral("visible"));
+            if (vis.isObject() &&
+                vis.toObject().value(QStringLiteral("script")).toString()
+                    .contains(QStringLiteral("MediaPlaybackEvent"))) {
+                mediaRoots.insert(id);
+            }
+        }
+        if (!mediaRoots.isEmpty()) {
+            QSet<double> hide = mediaRoots;
+            bool grew = true;
+            while (grew) {
+                grew = false;
+                for (auto it = parentOf.constBegin(); it != parentOf.constEnd(); ++it) {
+                    if (hide.contains(it.value()) && !hide.contains(it.key())) {
+                        hide.insert(it.key());
+                        grew = true;
+                    }
+                }
+            }
+            for (const double id : hide) {
+                const int idx = idToIndex.value(id, -1);
+                if (idx < 0) continue;
+                QJsonObject o = objects[idx].toObject();
+                o.insert(QStringLiteral("visible"), false);
+                objects.replace(idx, o);
+                changed = true;
+                qWarning() << "[lwepaper] hid media-playback widget object"
+                           << o.value(QStringLiteral("name")).toString();
+            }
+        }
+    }
+
     QJsonArray keptObjects;
 
     for (int i = 0; i < objects.size(); ++i) {
