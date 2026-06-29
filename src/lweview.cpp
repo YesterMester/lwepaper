@@ -19,6 +19,7 @@
 #include <QDateTime>
 #include <QPainterPath>
 #include <QHash>
+#include <QSet>
 
 #include <sys/types.h>
 #include <signal.h>
@@ -367,15 +368,30 @@ void LWEView::launchLwe()
                 }
                 QJsonObject presetObj = obj.value(QStringLiteral("preset")).toObject();
                 
+                // "text" properties are static HTML section headers in the
+                // editor, not real values — their "value" is usually the bool
+                // `false`. Passing them through as --set-property made layers
+                // bound to that name render the literal string "false" on the
+                // wallpaper (seen as a stray "false" in the Pixels wallpaper).
+                // Skip them. Also remember which keys are headers so a stray
+                // preset entry for the same key is skipped too.
+                QSet<QString> headerKeys;
                 QJsonObject activeProperties;
                 for (auto it = propertiesObj.begin(); it != propertiesObj.end(); ++it) {
                     QString key = it.key();
                     QJsonObject prop = it.value().toObject();
+                    if (prop.value(QStringLiteral("type")).toString().toLower() == QStringLiteral("text")) {
+                        headerKeys.insert(key);
+                        continue;
+                    }
                     if (prop.contains(QStringLiteral("value"))) {
                         activeProperties.insert(key, prop.value(QStringLiteral("value")));
                     }
                 }
+                for (const QString &hk : headerKeys)
+                    activeProperties.remove(hk);
                 for (auto it = presetObj.begin(); it != presetObj.end(); ++it) {
+                    if (headerKeys.contains(it.key())) continue;
                     activeProperties.insert(it.key(), it.value());
                 }
 
