@@ -4,6 +4,7 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QSet>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -66,6 +67,75 @@ static void removeBlockStartingWith(QString &text, const QString &prefix)
             text.remove(idx, braceStart - idx);
         }
     }
+}
+
+// Return a copy of the script with the *contents* of string literals and
+// comments blanked to spaces (delimiters and newlines preserved). A single
+// linear scan — it doesn't try to be a full JS lexer (regex literals and
+// template `${}` interpolation aren't special-cased), but it's enough to keep
+// an identifier check from being fooled by a word that only ever appears
+// inside a string. That false match is exactly what broke the "Pixels"
+// wallpaper: its "Random Words" text layers carry a big word-list array
+// containing entries like "speedy"/"speedful", and a naive
+// scriptText.contains("speed") then injected `speed = ...` referencing an
+// undeclared `speed`, which under the script's `'use strict'` throws
+// ReferenceError and kills the whole layer (black panel).
+static QString blankStringsAndComments(const QString &src)
+{
+    QString out = src;
+    const int n = out.size();
+    int i = 0;
+    enum { Code, SQuote, DQuote, BQuote, LineComment, BlockComment } state = Code;
+    while (i < n) {
+        const QChar c = out[i];
+        const QChar nx = (i + 1 < n) ? out[i + 1] : QChar();
+        switch (state) {
+        case Code:
+            if (c == QLatin1Char('/') && nx == QLatin1Char('/')) { state = LineComment; i += 2; }
+            else if (c == QLatin1Char('/') && nx == QLatin1Char('*')) { state = BlockComment; i += 2; }
+            else if (c == QLatin1Char('\'')) { state = SQuote; i += 1; }
+            else if (c == QLatin1Char('"')) { state = DQuote; i += 1; }
+            else if (c == QLatin1Char('`')) { state = BQuote; i += 1; }
+            else { i += 1; }
+            break;
+        case LineComment:
+            if (c == QLatin1Char('\n')) { state = Code; }
+            else { out[i] = QLatin1Char(' '); }
+            i += 1;
+            break;
+        case BlockComment:
+            if (c == QLatin1Char('*') && nx == QLatin1Char('/')) { out[i] = QLatin1Char(' '); out[i + 1] = QLatin1Char(' '); state = Code; i += 2; }
+            else { if (c != QLatin1Char('\n')) out[i] = QLatin1Char(' '); i += 1; }
+            break;
+        case SQuote:
+        case DQuote:
+        case BQuote: {
+            const QChar q = state == SQuote ? QLatin1Char('\'') : state == DQuote ? QLatin1Char('"') : QLatin1Char('`');
+            if (c == QLatin1Char('\\')) {
+                out[i] = QLatin1Char(' ');
+                if (i + 1 < n && out[i + 1] != QLatin1Char('\n')) out[i + 1] = QLatin1Char(' ');
+                i += 2;
+            } else if (c == q) { state = Code; i += 1; }
+            else { if (c != QLatin1Char('\n')) out[i] = QLatin1Char(' '); i += 1; }
+            break;
+        }
+        }
+    }
+    return out;
+}
+
+// True if `name` appears as a bare identifier in real code (not a property
+// access like `foo.name`, not part of a longer identifier, and — because we
+// test against the blanked view — not inside a string or comment).
+static bool scriptCodeUsesBareIdentifier(const QString &codeOnly, const QString &name)
+{
+    static QHash<QString, QRegularExpression> cache;
+    auto it = cache.find(name);
+    if (it == cache.end()) {
+        it = cache.insert(name, QRegularExpression(
+            QStringLiteral("(?<![\\w$.])") + QRegularExpression::escape(name) + QStringLiteral("(?![\\w$])")));
+    }
+    return codeOnly.contains(it.value());
 }
 
 static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QString &propName = QString())
@@ -236,29 +306,42 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                 // Wrapped in marker comments so step 1b above can cleanly
                 // strip exactly this block on the NEXT patch pass, instead of
                 // blindly re-injecting another copy on top of it.
+                // Decide which optional helper-var initializers to inject based
+                // on whether the script *actually uses* that variable as a bare
+                // code identifier — NOT on a raw substring match, which used to
+                // fire on words inside string literals (see
+                // blankStringsAndComments above). These helpers
+                // (initScale/newScale/.../speed) belong to common workshop
+                // hover-to-scale / animation utility scripts; they're written
+                // without `'use strict'` so the injected bare assignment creates
+                // the global they expect. Injecting them into an unrelated
+                // strict-mode script (the false-positive case) instead throws
+                // ReferenceError and kills the layer, so we must only inject
+                // when the variable is genuinely referenced in code.
+                const QString codeOnly = blankStringsAndComments(scriptText);
                 QString propInit;
                 propInit += QStringLiteral("/* LWE PROP INIT */\n");
                 propInit += QStringLiteral("  if (value === undefined || value === null) { value = _lwe_default_value; }\n");
                 propInit += QStringLiteral("  value = _lwe_wrap(value);\n");
-                if (scriptText.contains(QStringLiteral("initScale"))) {
+                if (scriptCodeUsesBareIdentifier(codeOnly, QStringLiteral("initScale"))) {
                     propInit += QStringLiteral("  if (initScale === undefined || initScale === null) { initScale = value; }\n");
                 }
-                if (scriptText.contains(QStringLiteral("newScale"))) {
+                if (scriptCodeUsesBareIdentifier(codeOnly, QStringLiteral("newScale"))) {
                     propInit += QStringLiteral("  if (newScale === undefined || newScale === null) { newScale = new Vec3(initScale.multiply(scriptProperties.hoScale || 1.5)); }\n");
                 }
-                if (scriptText.contains(QStringLiteral("initOrigin"))) {
+                if (scriptCodeUsesBareIdentifier(codeOnly, QStringLiteral("initOrigin"))) {
                     propInit += QStringLiteral("  if (initOrigin === undefined || initOrigin === null) { initOrigin = value; }\n");
                 }
-                if (scriptText.contains(QStringLiteral("newOrigin"))) {
+                if (scriptCodeUsesBareIdentifier(codeOnly, QStringLiteral("newOrigin"))) {
                     propInit += QStringLiteral("  if (newOrigin === undefined || newOrigin === null) { newOrigin = new Vec3(initOrigin.multiply(scriptProperties.hoScale || 1.5)); }\n");
                 }
-                if (scriptText.contains(QStringLiteral("initPosition"))) {
+                if (scriptCodeUsesBareIdentifier(codeOnly, QStringLiteral("initPosition"))) {
                     propInit += QStringLiteral("  if (initPosition === undefined || initPosition === null) { initPosition = value; }\n");
                 }
-                if (scriptText.contains(QStringLiteral("newPosition"))) {
+                if (scriptCodeUsesBareIdentifier(codeOnly, QStringLiteral("newPosition"))) {
                     propInit += QStringLiteral("  if (newPosition === undefined || newPosition === null) { newPosition = new Vec3(initPosition.multiply(scriptProperties.hoScale || 1.5)); }\n");
                 }
-                if (scriptText.contains(QStringLiteral("speed"))) {
+                if (scriptCodeUsesBareIdentifier(codeOnly, QStringLiteral("speed"))) {
                     propInit += QStringLiteral("  if (speed === undefined || speed === null) { speed = (scriptProperties.speed || 10) / 100; }\n");
                 }
                 propInit += QStringLiteral("/* END LWE PROP INIT */\n");
