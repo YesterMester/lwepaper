@@ -141,10 +141,25 @@ index 8368634..c20bff2 100644
      // WE uses a Y-down coordinate system (origin at top-left, y increases downward).
      // The final FBO is presented to screen with vflip=true on Wayland/GLFW, which maps
 diff --git a/src/WallpaperEngine/Scripting/ScriptEngine.cpp b/src/WallpaperEngine/Scripting/ScriptEngine.cpp
-index e690b92..9cc3e0e 100644
+index e690b92..c8f5191 100644
 --- a/src/WallpaperEngine/Scripting/ScriptEngine.cpp
 +++ b/src/WallpaperEngine/Scripting/ScriptEngine.cpp
-@@ -318,13 +318,17 @@ void ScriptEngine::ensureLayerRegistry () {
+@@ -115,7 +115,13 @@ static void jsToDynamicValue (JSContext* ctx, JSValue val, DynamicValue& source)
+     int tag = JS_VALUE_GET_TAG (val);
+ 
+     if (tag == JS_TAG_UNDEFINED || tag == JS_TAG_UNINITIALIZED || tag == JS_TAG_NULL) {
+-	source.update (DynamicValue::UpdateSource::Script);
++	// update() returned nothing — or the script has no update() at all, e.g.
++	// a drag-only widget script that only defines cursorDown/Move/Up. That
++	// means "no change", NOT "reset to zero". Leave the value as-is (its
++	// parsed initial value / whatever a previous frame set). The old no-arg
++	// update() here zeroed origin/scale/etc., which slammed every draggable
++	// window (Eyes/Notepad/… in the Pixels wallpaper) to the top-left corner
++	// and collapsed scripted-scale layers to nothing.
+ 	return;
+     }
+ 
+@@ -318,13 +324,17 @@ void ScriptEngine::ensureLayerRegistry () {
      JSContext* ctx = this->m_context;
      JSValue globalObj = JS_GetGlobalObject (ctx);
      JS_SetPropertyStr (ctx, globalObj, "__textLayers", JS_NewObject (ctx));
@@ -163,7 +178,7 @@ index e690b92..9cc3e0e 100644
  ) {
      if (!this->m_context) {
  	sLog.error ("ScriptEngine: No JS context available");
-@@ -345,6 +349,7 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
+@@ -345,6 +355,7 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
  
      JS_SetPropertyStr (ctx, globalObj, "__layerSeedProps", seedProps);
      JS_SetPropertyStr (ctx, globalObj, "__layerSeedText", JS_NewString (ctx, initialText.c_str ()));
@@ -171,7 +186,7 @@ index e690b92..9cc3e0e 100644
  
      const ScriptLayerHandle id = this->m_nextLayerId++;
  
-@@ -372,13 +377,24 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
+@@ -372,13 +383,24 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
      wrapper
  	<< "(function() {\n"
  	<< "  var __id = " << id << ";\n"
@@ -196,7 +211,7 @@ index e690b92..9cc3e0e 100644
  	<< "  };\n"
  	// Minimal WE `engine` shim. Real Wallpaper Engine exposes a broad API
  	// (media events, audio buffer, user input); we provide just enough for
-@@ -420,6 +436,7 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
+@@ -420,6 +442,7 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
  	<< "              : null,\n"
  	<< "    _scriptProperties: (typeof scriptProperties !== 'undefined') ? scriptProperties : __props\n"
  	<< "  };\n"
@@ -204,7 +219,7 @@ index e690b92..9cc3e0e 100644
  	<< "})();\n";
  
      const std::string evalScript = wrapper.str ();
-@@ -428,6 +445,7 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
+@@ -428,6 +451,7 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
      // Unset seeds so they don't leak into the next createLayerScript call.
      JS_SetPropertyStr (ctx, globalObj, "__layerSeedProps", JS_UNDEFINED);
      JS_SetPropertyStr (ctx, globalObj, "__layerSeedText", JS_UNDEFINED);
@@ -212,7 +227,7 @@ index e690b92..9cc3e0e 100644
      JS_FreeValue (ctx, globalObj);
  
      if (JS_IsException (result)) {
-@@ -441,6 +459,27 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
+@@ -441,6 +465,27 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
      return id;
  }
  
