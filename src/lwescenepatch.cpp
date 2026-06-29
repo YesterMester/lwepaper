@@ -263,7 +263,40 @@ static void injectGlobalsIntoScripts(QJsonValue &value, bool &changed, const QSt
                 }
                 propInit += QStringLiteral("/* END LWE PROP INIT */\n");
 
-                QRegularExpression funcRegex(QStringLiteral("\\bfunction\\s+(init|update)\\s*\\(\\s*value\\s*\\)\\s*\\{"));
+                // Self-heal bare callback definitions that are missing the
+                // `function` keyword, e.g. a top-level `update(value) {` or
+                // `applyUserProperties(p) {`. QuickJS (LWE's script engine)
+                // rejects these with "SyntaxError: expecting ';'", which
+                // aborts the WHOLE layer script — that's what broke every
+                // clock / date / countdown / now-playing text layer (e.g. the
+                // "Pixels" wallpaper and everything depending on it). The
+                // damage is baked into some already-patched scene.pkg files on
+                // disk (an earlier patcher revision stripped `export function`
+                // down to just the name), so we can't rely on re-running the
+                // export cleanup — we restore the keyword directly. Only the
+                // known Wallpaper Engine scene-script callbacks are matched, at
+                // statement position (start of line), so this never touches
+                // control-flow keywords (`if (...) {`) or genuine call
+                // expressions, and it is idempotent (won't re-prefix something
+                // that already says `function`).
+                static const QRegularExpression bareCallbackRegex(
+                    QStringLiteral("^([ \\t]*)(init|update|destroy|applyUserProperties|"
+                                   "cursorMove|cursorDown|cursorUp|cursorEnter|cursorLeave|cursorClick|"
+                                   "mediaPlaybackChanged|mediaPropertiesChanged|mediaThumbnailChanged|"
+                                   "mediaTimelineChanged|keyDown|keyUp|keyPress)"
+                                   "(\\s*\\([^)]*\\)\\s*\\{)"),
+                    QRegularExpression::MultilineOption);
+                scriptText.replace(bareCallbackRegex, QStringLiteral("\\1function \\2\\3"));
+
+                // NOTE the trailing `\\s*` after `\\{`: it consumes any
+                // whitespace/blank lines already sitting after the opening
+                // brace. Without it, re-patching was non-idempotent — the
+                // cleanup pass above strips the PROP INIT block but leaves the
+                // surrounding newlines, and this replacement re-inserted its
+                // own `\\n`, so every plasmashell restart appended another
+                // blank line and rewrote the (ever-growing) scene.pkg. Eating
+                // the leading whitespace collapses it back to a stable form.
+                QRegularExpression funcRegex(QStringLiteral("\\bfunction\\s+(init|update)\\s*\\(\\s*value\\s*\\)\\s*\\{\\s*"));
                 scriptText.replace(funcRegex, QStringLiteral("function \\1(value) {\n") + propInit);
 
                 // Prepare latest shim with Vec2, Vec3, Vec4, Color, localStorage, and WEMath
