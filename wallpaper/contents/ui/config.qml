@@ -32,6 +32,13 @@ ColumnLayout {
 
     ListModel {
         id: wpPropertiesModel
+        // dynamicRoles is REQUIRED here: wallpaper properties have a `value`
+        // role whose type varies per row (bool / number / string / color
+        // string). A static ListModel locks each role to the type of the
+        // FIRST appended row — the first property is usually a bool, so every
+        // later string/number value got coerced to bool (false), which is why
+        // text inputs, colours and sliders showed blank/wrong defaults.
+        dynamicRoles: true
     }
 
     function loadWpProperties() {
@@ -348,8 +355,14 @@ ColumnLayout {
 
                     Label {
                         text: model.text
-                        Layout.preferredWidth: 180
-                        elide: Text.ElideRight
+                        // "text" properties are HTML section headers: render
+                        // them styled and full-width. Everything else is a
+                        // plain property label in a fixed column.
+                        Layout.preferredWidth: model.type === "text" ? -1 : 180
+                        Layout.fillWidth: model.type === "text"
+                        textFormat: model.type === "text" ? Text.StyledText : Text.PlainText
+                        wrapMode: model.type === "text" ? Text.WordWrap : Text.NoWrap
+                        elide: model.type === "text" ? Text.ElideNone : Text.ElideRight
                     }
 
                     Loader {
@@ -359,6 +372,9 @@ ColumnLayout {
                             if (model.type === "slider") return sliderControl
                             if (model.type === "combo") return comboControl
                             if (model.type === "color") return colorControl
+                            // WE "text" properties are static section headers
+                            // (HTML), not editable inputs — render read-only.
+                            if (model.type === "text") return labelControl
                             return textControl
                         }
                     }
@@ -470,13 +486,24 @@ ColumnLayout {
     Component {
         id: textControl
         TextField {
-            text: model.value !== undefined ? model.value.toString() : ""
+            // value may be undefined/null for properties with no default —
+            // coerce to "" so the field is just empty rather than showing
+            // "null"/"undefined".
+            text: (model.value === undefined || model.value === null) ? "" : model.value.toString()
             Layout.fillWidth: true
             onEditingFinished: {
                 library.saveWallpaperProperty(root.cfg_WorkshopId, model.key, text)
                 root.cfg_RelaunchTrigger = root.cfg_RelaunchTrigger + 1
             }
         }
+    }
+
+    // WE "text" properties are static HTML section headers, not inputs. The
+    // header itself is shown by the row's left-hand Label (model.text); the
+    // control column just needs a spacer so no stray editable box appears.
+    Component {
+        id: labelControl
+        Item { implicitHeight: 1 }
     }
 
     // ─── Playback options ────────────────────────────────────────────
