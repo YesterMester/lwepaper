@@ -1,0 +1,34 @@
+diff --git a/src/WallpaperEngine/Data/Builders/ColorBuilder.cpp b/src/WallpaperEngine/Data/Builders/ColorBuilder.cpp
+index e13a2d5..f7a793a 100644
+--- a/src/WallpaperEngine/Data/Builders/ColorBuilder.cpp
++++ b/src/WallpaperEngine/Data/Builders/ColorBuilder.cpp
+@@ -56,10 +56,26 @@ WallpaperEngine::Data::Builders::ColorBuilder::parse (const std::string& value,
+     }
+ 
+     if (copy.find ('.') == std::string::npos) {
+-	const auto final = vectorSize == 3 ? glm::ivec4 (VectorBuilder::parse<glm::ivec3> (copy), alpha * 255)
+-					   : VectorBuilder::parse<glm::ivec4> (copy);
++	// No decimal point. This is ambiguous: it might be 0-255 integer
++	// notation (e.g. "255 128 0"), OR a perfectly normal 0-1 float colour
++	// that just happens to use whole numbers — most importantly "1 1 1"
++	// (white) and "1 0 1" etc., which are the literal defaults Wallpaper
++	// Engine ships for colour properties like "Text Colour [Default
++	// #FFFFFF]" ("value": "1 1 1"). Blindly dividing by 255 turned white
++	// into (1/255) ≈ near-black, so every text/clock layer bound to such a
++	// property rendered invisible. Only treat it as 0-255 when a component
++	// actually exceeds 1; otherwise the values are already in 0-1 range.
++	const auto ints = vectorSize == 3 ? glm::ivec4 (VectorBuilder::parse<glm::ivec3> (copy), 1)
++					  : VectorBuilder::parse<glm::ivec4> (copy);
++	const int maxComponent = std::max ({ ints.r, ints.g, ints.b, ints.a });
+ 
+-	return { final.r / 255.0f, final.g / 255.0f, final.b / 255.0f, final.a / 255.0f };
++	if (maxComponent > 1) {
++	    const auto final = vectorSize == 3 ? glm::ivec4 (glm::ivec3 (ints), static_cast<int> (alpha * 255)) : ints;
++	    return { final.r / 255.0f, final.g / 255.0f, final.b / 255.0f, final.a / 255.0f };
++	}
++
++	// Already-normalized 0-1 whole-number colour (white/black/primary mixes).
++	return vectorSize == 3 ? Model::Color (glm::vec4 (glm::vec3 (ints), alpha)) : Model::Color (glm::vec4 (ints));
+     }
+ 
+     return Model::Color (

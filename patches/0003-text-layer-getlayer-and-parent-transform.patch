@@ -1,0 +1,269 @@
+diff --git a/src/WallpaperEngine/Render/Objects/CText.cpp b/src/WallpaperEngine/Render/Objects/CText.cpp
+index 8368634..c20bff2 100644
+--- a/src/WallpaperEngine/Render/Objects/CText.cpp
++++ b/src/WallpaperEngine/Render/Objects/CText.cpp
+@@ -1,5 +1,6 @@
+ #include "CText.h"
+ 
++#include <cmath>
+ #include <filesystem>
+ #include <vector>
+ 
+@@ -71,6 +72,83 @@ GLuint compileShader (GLenum type, const char* source) {
+     }
+     return shader;
+ }
++
++// Parent-aware transform resolution, mirroring CImage::resolveTransform (kept
++// local to avoid a cross-class dependency). Wallpaper Engine positions child
++// layers RELATIVE to their parent "window"/group containers; a text layer's
++// own origin is an offset within that parent. Without folding in the parent
++// chain, a clock/date layer — e.g. origin (-160, 12) inside "World Clock
++// Window" at (653, 293) — lands far off-screen, which is exactly why the
++// Pixels dashboard panels (clocks, calendar, world time) rendered blank.
++struct ResolvedXf {
++    glm::vec3 origin;
++    glm::vec3 scale;
++    float angle;
++};
++
++glm::vec2 rotateVec2Xf (const glm::vec2& v, float a) {
++    const float c = std::cos (a);
++    const float s = std::sin (a);
++    return { v.x * c - v.y * s, v.x * s + v.y * c };
++}
++
++ResolvedXf localXf (const WallpaperEngine::Data::Model::Object& object) {
++    using namespace WallpaperEngine::Data::Model;
++    glm::vec3 origin = object.origin->value->getVec3 ();
++    glm::vec3 scale = glm::vec3 (1.0f);
++    float angle = 0.0f;
++
++    if (object.is<Image> ()) {
++        const auto* image = object.as<Image> ();
++        scale = image->scale->value->getVec3 ();
++        angle = image->angles->value->getVec3 ().z;
++    } else if (object.is<Text> ()) {
++        const auto* text = object.as<Text> ();
++        scale = text->scale->value->getVec3 ();
++    } else {
++        scale = object.groupScale->value->getVec3 ();
++        angle = object.groupAngles->value->getVec3 ().z;
++    }
++
++    return { origin, scale, angle };
++}
++
++ResolvedXf resolveXf (
++    WallpaperEngine::Render::Wallpapers::CScene& scene, const WallpaperEngine::Data::Model::Object& object
++) {
++    using WallpaperEngine::Data::Model::Object;
++    constexpr int kMaxParentDepth = 32;
++
++    const Object* chain[kMaxParentDepth + 1];
++    int count = 0;
++    const Object* current = &object;
++    chain[count++] = current;
++
++    while (current->parent.has_value ()) {
++        if (count > kMaxParentDepth) {
++            break;
++        }
++        const auto* parentObject = scene.getObject (current->parent.value ());
++        if (parentObject == nullptr) {
++            break;
++        }
++        current = &parentObject->getObject ();
++        chain[count++] = current;
++    }
++
++    ResolvedXf resolved = localXf (*chain[count - 1]);
++    for (int i = count - 2; i >= 0; --i) {
++        ResolvedXf local = localXf (*chain[i]);
++        const glm::vec2 offset
++            = rotateVec2Xf ({ local.origin.x * resolved.scale.x, local.origin.y * resolved.scale.y }, resolved.angle);
++        local.origin.x = resolved.origin.x + offset.x;
++        local.origin.y = resolved.origin.y + offset.y;
++        local.origin.z = resolved.origin.z + local.origin.z * resolved.scale.z;
++        resolved = { local.origin, local.scale * resolved.scale, local.angle + resolved.angle };
++    }
++
++    return resolved;
++}
+ } // namespace
+ 
+ CText::CText (Wallpapers::CScene& scene, const Text& text) :
+@@ -135,9 +213,10 @@ void CText::setup () {
+     // glyph texture has non-zero dimensions until the script produces a value.
+     rebuildTextureFrom (text.empty () ? std::string (" ") : text);
+ 
+-    if (scripted) {
+-	initScriptLayer ();
+-    }
++    // Always run: scripted layers create their live layer script; static
++    // layers just publish their text by name so sibling scripts can read it
++    // via thisScene.getLayer(name).text. (initScriptLayer branches internally.)
++    initScriptLayer ();
+ 
+     m_valid = m_texture != 0 && m_program != 0 && m_vao != 0;
+ }
+@@ -216,11 +295,16 @@ void CText::initScriptLayer () {
+     const auto& script = m_text.text->value->getScriptSource ();
+ 
+     if (!script.has_value ()) {
++	// Non-scripted (static) text layer: still publish its text under its
++	// name so scripted sibling layers can read it via
++	// thisScene.getLayer(name).text (e.g. clocks reading a timezone-offset
++	// layer like "Time Difference 1").
++	this->getScene ().getScriptEngine ().registerStaticLayerText (m_text.name, m_text.text->value->getString ());
+ 	return;
+     }
+ 
+     m_layerHandle = this->getScene ().getScriptEngine ().createLayerScript (
+-	*script, m_text.text->value->getProperties (), m_text.text->value->getString ()
++	*script, m_text.text->value->getProperties (), m_text.text->value->getString (), m_text.name
+     );
+ 
+     if (m_layerHandle == Scripting::kInvalidLayerHandle) {
+@@ -404,8 +488,12 @@ void CText::render () {
+ 
+     const glm::vec4 color = m_text.color->value->getVec4 ();
+     const float alpha = m_text.alpha->value->getFloat ();
+-    const glm::vec3 scale = m_text.scale->value->getVec3 ();
+-    const glm::vec3 origin = m_text.origin->value->getVec3 ();
++    // Fold in the parent chain: most clock/date/dashboard text layers are
++    // children of a "window" image laid out elsewhere on screen, so their own
++    // origin is only an offset within that parent.
++    const ResolvedXf xf = resolveXf (getScene (), this->getObject ());
++    const glm::vec3 scale = xf.scale;
++    const glm::vec3 origin = xf.origin;
+ 
+     // WE uses a Y-down coordinate system (origin at top-left, y increases downward).
+     // The final FBO is presented to screen with vflip=true on Wayland/GLFW, which maps
+diff --git a/src/WallpaperEngine/Scripting/ScriptEngine.cpp b/src/WallpaperEngine/Scripting/ScriptEngine.cpp
+index e690b92..9cc3e0e 100644
+--- a/src/WallpaperEngine/Scripting/ScriptEngine.cpp
++++ b/src/WallpaperEngine/Scripting/ScriptEngine.cpp
+@@ -318,13 +318,17 @@ void ScriptEngine::ensureLayerRegistry () {
+     JSContext* ctx = this->m_context;
+     JSValue globalObj = JS_GetGlobalObject (ctx);
+     JS_SetPropertyStr (ctx, globalObj, "__textLayers", JS_NewObject (ctx));
++    // name -> layer object (the same `thisLayer` exposed to the layer's own
++    // script for scripted layers, or a tiny { text } holder for static ones).
++    // Lets one layer read another by name: thisScene.getLayer("X").text
++    JS_SetPropertyStr (ctx, globalObj, "__textLayersByName", JS_NewObject (ctx));
+     JS_FreeValue (ctx, globalObj);
+     this->m_layerRegistryReady = true;
+ }
+ 
+ ScriptLayerHandle ScriptEngine::createLayerScript (
+     const std::string& scriptSource, std::map<std::string, UserSettingUniquePtr>& initialScriptProps,
+-    const std::string& initialText
++    const std::string& initialText, const std::string& layerName
+ ) {
+     if (!this->m_context) {
+ 	sLog.error ("ScriptEngine: No JS context available");
+@@ -345,6 +349,7 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
+ 
+     JS_SetPropertyStr (ctx, globalObj, "__layerSeedProps", seedProps);
+     JS_SetPropertyStr (ctx, globalObj, "__layerSeedText", JS_NewString (ctx, initialText.c_str ()));
++    JS_SetPropertyStr (ctx, globalObj, "__layerSeedName", JS_NewString (ctx, layerName.c_str ()));
+ 
+     const ScriptLayerHandle id = this->m_nextLayerId++;
+ 
+@@ -372,13 +377,24 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
+     wrapper
+ 	<< "(function() {\n"
+ 	<< "  var __id = " << id << ";\n"
++	<< "  var __name = String(globalThis.__layerSeedName || '');\n"
+ 	<< "  var __props = Object.assign({}, globalThis.__layerSeedProps || {});\n"
+ 	<< "  var thisLayer = { text: String(globalThis.__layerSeedText || '') };\n"
++	// getLayer(name) lets a layer read a sibling layer's text (built-in WE
++	// clocks read a timezone-offset text layer, etc.). It resolves against the
++	// by-name registry of every text layer (scripted or static); unknown names
++	// return a harmless stub so an image-layer lookup doesn't throw
++	// "not a function" / "cannot read of undefined" and kill the whole script.
+ 	<< "  var thisScene = {\n"
+ 	<< "    get time()        { var c = globalThis.__sceneCtx; return c ? c.time : 0; },\n"
+ 	<< "    get currentTime() { var c = globalThis.__sceneCtx; return c ? c.time : 0; },\n"
+ 	<< "    get dt()          { var c = globalThis.__sceneCtx; return c ? c.dt   : 0; },\n"
+ 	<< "    get fps()         { var c = globalThis.__sceneCtx; return c ? c.fps  : 60; },\n"
++	<< "    getLayer: function(n) {\n"
++	<< "      var reg = globalThis.__textLayersByName;\n"
++	<< "      if (reg && Object.prototype.hasOwnProperty.call(reg, n)) return reg[n];\n"
++	<< "      return { text: '', visible: true, alpha: 1 };\n"
++	<< "    },\n"
+ 	<< "  };\n"
+ 	// Minimal WE `engine` shim. Real Wallpaper Engine exposes a broad API
+ 	// (media events, audio buffer, user input); we provide just enough for
+@@ -420,6 +436,7 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
+ 	<< "              : null,\n"
+ 	<< "    _scriptProperties: (typeof scriptProperties !== 'undefined') ? scriptProperties : __props\n"
+ 	<< "  };\n"
++	<< "  if (__name) globalThis.__textLayersByName[__name] = thisLayer;\n"
+ 	<< "})();\n";
+ 
+     const std::string evalScript = wrapper.str ();
+@@ -428,6 +445,7 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
+     // Unset seeds so they don't leak into the next createLayerScript call.
+     JS_SetPropertyStr (ctx, globalObj, "__layerSeedProps", JS_UNDEFINED);
+     JS_SetPropertyStr (ctx, globalObj, "__layerSeedText", JS_UNDEFINED);
++    JS_SetPropertyStr (ctx, globalObj, "__layerSeedName", JS_UNDEFINED);
+     JS_FreeValue (ctx, globalObj);
+ 
+     if (JS_IsException (result)) {
+@@ -441,6 +459,27 @@ ScriptLayerHandle ScriptEngine::createLayerScript (
+     return id;
+ }
+ 
++void ScriptEngine::registerStaticLayerText (const std::string& layerName, const std::string& text) {
++    if (!this->m_context || layerName.empty ()) {
++	return;
++    }
++
++    this->ensureLayerRegistry ();
++
++    JSContext* ctx = this->m_context;
++    JSValue globalObj = JS_GetGlobalObject (ctx);
++    JSValue byName = JS_GetPropertyStr (ctx, globalObj, "__textLayersByName");
++
++    if (!JS_IsUndefined (byName) && !JS_IsNull (byName)) {
++	JSValue holder = JS_NewObject (ctx);
++	JS_SetPropertyStr (ctx, holder, "text", JS_NewString (ctx, text.c_str ()));
++	JS_SetPropertyStr (ctx, byName, layerName.c_str (), holder);
++    }
++
++    JS_FreeValue (ctx, byName);
++    JS_FreeValue (ctx, globalObj);
++}
++
+ void ScriptEngine::tickLayer (ScriptLayerHandle handle, double time, double deltaTime, double fps) {
+     if (!this->m_context || handle == kInvalidLayerHandle) {
+ 	return;
+diff --git a/src/WallpaperEngine/Scripting/ScriptEngine.h b/src/WallpaperEngine/Scripting/ScriptEngine.h
+index 8fba5b7..11ff0cb 100644
+--- a/src/WallpaperEngine/Scripting/ScriptEngine.h
++++ b/src/WallpaperEngine/Scripting/ScriptEngine.h
+@@ -111,9 +111,21 @@ public:
+      */
+     ScriptLayerHandle createLayerScript (
+ 	const std::string& scriptSource, std::map<std::string, UserSettingUniquePtr>& initialScriptProps,
+-	const std::string& initialText
++	const std::string& initialText, const std::string& layerName = std::string ()
+     );
+ 
++    /**
++     * Register a non-scripted text layer's current text under its name so that
++     * other layers' scripts can read it via `thisScene.getLayer(name).text`.
++     *
++     * Many built-in WE clock/calendar widgets keep their parameters (e.g. a
++     * timezone offset "+1") in a *static* text layer and look it up by name
++     * from a sibling script layer. Those source layers have no script of their
++     * own, so they never go through createLayerScript; this gives getLayer
++     * something to find for them too.
++     */
++    void registerStaticLayerText (const std::string& layerName, const std::string& text);
++
+     /**
+      * Advance a layer by one frame.
+      *
